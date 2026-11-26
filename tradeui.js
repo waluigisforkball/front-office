@@ -1,5 +1,5 @@
-import { tradeValue, balance } from './trade.js?v=10';
-import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=10';
+import { tradeValue, balance } from './trade.js?v=11';
+import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=11';
 const $ = id => document.getElementById(id);
 const PAGE = 6;
 const basket = { give: [], get: [] }, view = { give: { spot: '', page: 0 }, get: { spot: '', page: 0 } };
@@ -110,4 +110,5 @@ export function setupTrade(lock) {
     basket.give = []; basket.get = []; $('tradeform').reset(); drawTrade();
   };
 }
+export const clearAll = () => { basket.give = []; view.give = { spot: '', page: 0 }; $('givefind').value = ''; clearReceived(); };
 export const clearReceived = () => { basket.get = []; view.get = { spot: '', page: 0 }; $('getfind').value = ''; };
