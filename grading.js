@@ -1,5 +1,5 @@
 // All money in $ millions. "time" is plate appearances or innings.
-export const DEFAULTS = { dollarsPerWar: 9, injuryBase: 0, injuryPerYearOver30: 0.02, rosterSpotCost: 0.25 };
+export const DEFAULTS = { dollarsPerWar: 9, injuryBase: 0, injuryPerYearOver30: 0.02, rosterSpotCost: 0.25, futureDiscount: 0.08 };
 export const surplus = (war, cost, s) => war * s.dollarsPerWar - cost;
 export const injuryDiscount = (age, s) => Math.min(.5, s.injuryBase + Math.max(0, age - 30) * s.injuryPerYearOver30);
 // Process: only what was knowable. move = {war, cost, age}

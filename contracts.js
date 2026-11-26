@@ -33,11 +33,18 @@ export function estimate(player, war, years0, settings) {
   return { pay, owed: false };
 }
 // Order of trust: your trade entry, then your imported file (or estimate), with a salary fix on top.
-export function terms(player, { war, splits, edit, fix, imported, settings }) {
+// A signed deal is used as written. A projected arbitration salary sets 2027 and estimates the rest.
+function reported(known, player, war, yrs, settings) {
+  if (known.pay) return { pay: [...known.pay], aav: known.aav, source: 'reported', owed: known.guaranteed };
+  const later = estimate(player, war, Math.max(3, 6 - known.control), settings).pay, pay = [known.first];
+  for (let i = 1; i < known.control; i++) pay.push(round(Math.max(later[i] ?? 0, pay[i - 1] * 1.1)));
+  return { pay, aav: known.first, source: 'reported projection', owed: false };
+}
+export function terms(player, { war, splits, edit, fix, imported, known, settings }) {
   if (edit) return { pay: Array(edit.years).fill(edit.salary), aav: edit.salary, source: 'your entry', owed: edit.years > 1 };
   const yrs = service(splits, player.debut);
   const out = imported ? { pay: Array(imported.years).fill(imported.salary), aav: imported.aav ?? imported.salary, source: 'imported', owed: imported.years > 1 || yrs >= 6 }
-    : { ...estimate(player, war, yrs, settings), source: 'estimate' };
+    : known ? reported(known, player, war, yrs, settings) : { ...estimate(player, war, yrs, settings), source: 'estimate' };
   if (fix) return { ...out, pay: [fix.salary, ...out.pay.slice(1)], aav: fix.aav, source: 'my fix' };
   return { ...out, aav: out.aav ?? out.pay[0] };
 }

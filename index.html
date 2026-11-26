@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css?v=11"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=13"></head><body>
 <header><h1>Front Office</h1><span id="snap">No roster loaded</span></header>
 <main>
 <p id="lock" class="panel warn"></p>
@@ -15,12 +15,14 @@
 <section class="panel"><div class="row"><button id="load">Load roster</button><button id="stats5">Refresh stats</button></div></section>
 </div>
 <div data-view="roster">
-<div class="row"><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
+<div class="row"><label>Team<select id="rosterteam"><option value="">My team</option></select></label><label>Order by<select id="rostersort"><option value="war">Projected WAR</option><option value="value">Trade value</option></select></label><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
+<p><small>Tap Stats on a player to see or change his trade value. Other teams appear here after Scan league on the Trade tab.</small></p>
 <div id="rosterjump" class="jump"></div><div id="roster"></div>
 </div>
 <div data-view="market">
 <div class="row"><button id="fa">Load free agents</button><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
-<p><small>Unsigned as listed on Nov. 25, 2026. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
+<p><small>Listed as unsigned on Nov. 25, 2026. Real signings are checked each time you open the app. If one is missing, use Mark as signed. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
+<details id="marked" class="panel"><summary id="markcount"></summary><div id="marklist"></div></details>
 <div id="marketjump" class="jump"></div><div id="market"></div>
 </div>
 <div data-view="trade">
@@ -33,7 +35,7 @@
 <section class="panel" id="getzone"><h2>You get</h2><div id="getbasket" class="basket"></div><label>Find their player<input id="getfind" placeholder="Name or position"></label><div id="getspots" class="jump"></div><div id="getpool" class="pool"></div><div id="getpages" class="pages"></div></section>
 </div>
 <form id="tradeform" class="panel"><label>Why this trade?<textarea id="twhy" rows="3"></textarea></label><div class="row"><label>Confidence<select id="tconf"><option>Low</option><option selected>Medium</option><option>High</option></select></label><label>Alternatives considered<input id="tother"></label></div><p id="terror" role="alert"></p><button>Lock in trade</button></form>
-<p><small>Value is projected surplus over each player's remaining years. Contracts marked "estimate" are guesses from MLB service history and projected WAR, and veterans are assumed to earn about market rate. No retained salary, cash or draft picks. Built-in team payrolls are 2026 opening figures <a href="https://sports.yahoo.com/articles/2026-mlb-payrolls-highest-lowest-100221699.html" target="_blank" rel="noopener">reported by USA TODAY</a>; what each team can add is a rule of thumb.</small></p>
+<p><small>Trade value is homegrown: projected production in dollars, with extra for stars, minus salary over each player's years of control. Many Orioles salaries are from public reporting; contracts marked "estimate" are guesses. No retained salary, cash or draft picks, and no value for players without MLB stats. Built-in team payrolls are 2026 opening figures <a href="https://sports.yahoo.com/articles/2026-mlb-payrolls-highest-lowest-100221699.html" target="_blank" rel="noopener">reported by USA TODAY</a>; what each team can add is a rule of thumb.</small></p>
 </div>
 <div data-view="log">
 <section class="panel"><h2>Your plan</h2><p id="plansum"></p><div class="row"><button type="button" id="submit">Submit plan</button><button type="button" class="quiet" id="check">Check for updates</button></div><div id="plans"></div>
@@ -51,6 +53,7 @@
 <dialog id="detail"><h2 id="dname"></h2><div id="dbody"></div><button type="button" class="quiet" id="dclose">Close</button></dialog>
 <dialog id="done"><h2>Trade saved</h2><div id="donebody"></div><div class="row"><button type="button" id="doneview">View in Moves</button><button type="button" class="quiet" id="doneclose">Close</button></div></dialog>
 <dialog id="report"><h2 id="rname"></h2><div id="rbody"></div><button type="button" class="quiet" id="rclose">Close</button></dialog>
+<dialog id="mark"><form id="markform"><h2 id="markname"></h2><label>Signed with<select id="markteam" required></select></label><div class="row"><button>Mark as signed</button><button type="button" class="quiet" id="markcancel">Cancel</button></div></form></dialog>
 <dialog id="move"><form id="moveform"><h2 id="movename"></h2><p id="movewar"></p>
 <label>Move<select id="mtype"></select></label>
 <div class="row"><label>Years<input id="myears" type="number" min="1" max="15" value="1" required></label><label>Cost per year ($M)<input id="maav" type="number" min="0" step="any" required></label></div>
@@ -60,4 +63,4 @@
 <label>Other alternatives considered<input id="mother"></label>
 <p id="mscore"></p><div id="mforecast"><table id="mrows"></table><small>Estimate: flat cost and $ per win, with your age decline and injury discount.</small></div><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
 <div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
-<script type="module" src="app.js?v=11"></script></body></html>
+<script type="module" src="app.js?v=13"></script></body></html>

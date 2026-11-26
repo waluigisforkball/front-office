@@ -1,5 +1,5 @@
-import { tradeValue, balance } from './trade.js?v=11';
-import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=11';
+import { balance } from './trade.js?v=13';
+import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=13';
 const $ = id => document.getElementById(id);
 const PAGE = 6;
 const basket = { give: [], get: [] }, view = { give: { spot: '', page: 0 }, get: { spot: '', page: 0 } };
@@ -8,7 +8,7 @@ const opened = new Set();
 const money = v => (v <= -.05 ? '-$' : '$') + Math.abs(v).toFixed(1) + 'M';
 function describe(p) {
   const t = ctx.terms(p), war = ctx.war(p);
-  return { id: p.id, name: p.name, pos: ctx.section(p), age: p.age, war, pay: t.pay, source: t.source, owed: t.owed, surplus: tradeValue(p, war, t.pay, ctx.settings) };
+  return { id: p.id, name: p.name, pos: ctx.section(p), age: p.age, war, pay: t.pay, source: t.source, owed: t.owed, surplus: ctx.value(p).value, yours: ctx.value(p).yours };
 }
 const pool = side => (side === 'give' ? ctx.own : ctx.theirs($('team').value)).filter(p => !ctx.unavailable.has(p.id));
 const spotOf = p => SPOTS.includes(ctx.section(p)) ? ctx.section(p) : 'Other';
@@ -17,7 +17,7 @@ function chip(p, side, inBasket) {
   const { el } = ctx, d = describe(p);
   const open = el('button', { type: 'button', className: 'who', title: 'See stats', onclick: () => ctx.openDetail(p) }, ctx.face(p),
     el('span', {}, el('strong', {}, p.name), el('small', {}, `${d.pos}, age ${d.age ?? '?'}, ${d.war === null ? 'no proj.' : d.war.toFixed(1) + ' WAR'}`),
-      el('small', {}, d.surplus === null ? 'Not valued (no MLB projection)' : `Surplus ${money(d.surplus)} over ${d.pay.length} yr`),
+      el('small', {}, d.surplus === null ? 'Not valued (no MLB projection)' : `Trade value ${money(d.surplus)}, ${d.yours ? 'yours' : `${d.pay.length} yr of control`}`),
       el('small', {}, `${money(d.pay[0])} a year, ${d.source}`)));
   const act = el('button', { type: 'button', className: inBasket ? 'quiet' : '', onclick: () => { if (inBasket) { basket[side] = basket[side].filter(x => x !== p.id); drawTrade(); } else add(side, p.id); } }, inBasket ? 'Remove' : 'Add');
   const buttons = el('div', { className: 'acts' }, act, ...(side === 'give' ? [ctx.keepButton(p)] : []));
