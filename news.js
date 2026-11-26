@@ -1,4 +1,4 @@
-import { PAYROLL } from './budgets.js?v=11';
+import { PAYROLL } from './budgets.js?v=12';
 // Reads MLB transaction records and works out which of your moves real life has overtaken.
 export const ORIOLES = 110;
 const isClub = t => !!t && PAYROLL[t.id] !== undefined;

@@ -1,21 +1,23 @@
-import * as db from './db.js?v=11';
+import * as db from './db.js?v=12';
 import { parseCSV } from './csv.js';
 import { hitter, pitcher } from './projections.js';
 import { DEFAULTS, processScore } from './grading.js';
 import { forecast } from './forecast.js';
-import { TIERS, active, payroll, taxBill } from './payroll.js?v=11';
-import { projectStats, COLUMNS } from './stats.js?v=11';
-import { drawTrade, setupTrade, clearReceived, clearAll, search } from './tradeui.js?v=11';
-import { terms, importRows, plain } from './contracts.js?v=11';
-import { SPOTS, leagueNeeds } from './needs.js?v=11';
-import { PAYROLL, tier, room, theyAfford, youAfford, importPayrolls } from './budgets.js?v=11';
-import { byPlayer, signing, departure, moveStatus } from './news.js?v=11';
-import { OPENING, boardState } from './timemachine.js?v=11';
+import { TIERS, active, payroll, taxBill } from './payroll.js?v=12';
+import { projectStats, COLUMNS } from './stats.js?v=12';
+import { drawTrade, setupTrade, clearReceived, clearAll, search } from './tradeui.js?v=12';
+import { terms, importRows, plain } from './contracts.js?v=12';
+import { valueRows, tradeValue } from './trade.js?v=12';
+import { KNOWN } from './known.js?v=12';
+import { SPOTS, leagueNeeds } from './needs.js?v=12';
+import { PAYROLL, tier, room, theyAfford, youAfford, importPayrolls } from './budgets.js?v=12';
+import { byPlayer, signing, departure, moveStatus } from './news.js?v=12';
+import { OPENING, boardState } from './timemachine.js?v=12';
 
 const SNAP = '2026-11-25', API = 'https://statsapi.mlb.com/api/v1', $ = id => document.getElementById(id);
-const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, decline28to30: .25, declineFrom31: .5, statYears: 3, untouchable: [], budget2027: 185, baselineCash: 170, baselineTax: 186 };
+const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, decline28to30: .25, declineFrom31: .5, statYears: 3, untouchable: [], budget2027: 185, baselineCash: 150, baselineTax: 190, payrollDefaults: 2 };
 let books = { cash: 0, tax: 0 }, submissions = [], news = new Map(), checked = null;
-let history = {}, edits = {}, fixes = {}, imports = {}, teams = [], needs = null, effective = new Map(), statCache = new Map();
+let history = {}, edits = {}, fixes = {}, imports = {}, values = {}, teams = [], needs = null, effective = new Map(), statCache = new Map();
 const MINE = '110';
 // view is the Time Machine date; null means today. liveBefore is today's estimated roster cost.
 let view = null, builtAt = null, liveBefore = null;
@@ -28,6 +30,7 @@ const money = v => (v <= -.05 ? '-$' : '$') + Math.abs(v).toFixed(1) + 'M';
 const say = t => $('msg').textContent = t;
 const war = p => proj[p.id]?.war ?? null;
 const byWar = (a, b) => (war(b) ?? -99) - (war(a) ?? -99) || a.name.localeCompare(b.name);
+const byValue = (a, b) => (valueOf(b).value ?? -1e9) - (valueOf(a).value ?? -1e9) || byWar(a, b);
 const statsFor = p => {
   if (!history[p.id]) return null;
   if (!statCache.has(p.id)) statCache.set(p.id, projectStats(history[p.id], p.group === 'P', settings.statYears));
@@ -35,12 +38,19 @@ const statsFor = p => {
 };
 function termsFor(p) {
   if (!effective.has(p.id)) {
-    const t = terms(p, { war: war(p), splits: history[p.id], edit: edits[p.id], fix: fixes[p.id], imported: imports[p.mlbId] || imports[plain(p.name)], settings });
+    const deal = KNOWN[plain(p.name)], known = deal && (!view || view >= deal.since) ? deal : null;
+    const t = terms(p, { war: war(p), splits: history[p.id], edit: edits[p.id], fix: fixes[p.id], imported: imports[p.mlbId] || imports[plain(p.name)], known, settings });
     const ext = !edits[p.id] && active(log).findLast(d => d.type === 'extend' && d.playerId === p.id);
     effective.set(p.id, ext ? { pay: Array(Math.max(1, Math.floor(ext.years))).fill(ext.aav), aav: ext.aav, source: 'your extension', owed: true } : t);
   }
   return effective.get(p.id);
 }
+// Your own number wins over the formula.
+function valueOf(p) {
+  const mine = values[p.mlbId || p.id];
+  return mine ? { value: mine.value, yours: true } : { value: tradeValue(p, war(p), termsFor(p), settings), yours: false };
+}
+const valueText = p => { const v = valueOf(p); return v.value === null ? 'Not valued' : `Trade value ${money(v.value)}${v.yours ? ' (yours)' : ''}`; };
 // A team's players after your trades: players you got leave, players you gave arrive.
 function rosterOf(id) {
   const trades = active(log).filter(d => d.type === 'trade');
@@ -84,7 +94,7 @@ async function refresh() {
   proj = Object.fromEntries((await db.all('projections')).map(p => [p.playerId, p]));
   history = Object.fromEntries((await db.all('results')).filter(r => r.id.startsWith('stats:')).map(r => [r.playerId, r.splits]));
   const rows = await db.all('contracts'), by = kind => Object.fromEntries(rows.filter(c => c.snapshotId === kind).map(c => [c.playerId, c]));
-  edits = by('trade'); fixes = by('fix'); imports = by('import');
+  edits = by('trade'); fixes = by('fix'); imports = by('import'); values = by('value');
   statCache = new Map();
   const results = await db.all('results'), tx = results.find(r => r.id === 'tx');
   submissions = results.filter(r => r.kind === 'submission').sort((a, b) => a.number - b.number);
@@ -127,7 +137,7 @@ function keepButton(p) {
 function card(p) {
   const c = contracts[p.id], w = war(p), gone = active(log).some(d => d.playerId === p.id && ['release', 'nontender'].includes(d.type));
   const signed = active(log).find(d => d.playerId === p.id && ['sign', 'minor'].includes(d.type));
-  const out = traded('give').has(p.id), acquired = !!p.team;
+  const out = traded('give').has(p.id), acquired = !!p.team, theirs = acquired && !traded('get').has(p.id);
   const box = el('article', { className: 'card' }, face(p), el('strong', {}, p.name),
     el('small', {}, `${section(p).startsWith('Pitchers') ? 'P' : section(p)}, age ${p.age ?? '?'}`),
     el('div', { className: 'war' }, w === null ? 'No proj.' : `${w.toFixed(1)} WAR`));
@@ -137,13 +147,15 @@ function card(p) {
   else box.append(el('small', {}, history[p.id] ? 'No MLB stats in range' : 'Stats not loaded'));
   if (p.fa) box.append(el('small', {}, w === null ? 'No model value' : `Model value ${money(modelValue(p))}`),
     el('div', {}, el('span', { className: 'tag' }, signed ? 'In your plan' : fit(p))));
+  else if (p.team && !traded('get').has(p.id)) box.append(el('small', {}, `${money(termsFor(p).pay[0])} (${termsFor(p).source})`));
   else if (acquired) box.append(el('div', {}, el('span', { className: 'tag' }, 'Acquired by trade')));
   else box.append(el('small', {}, out ? 'Traded in your plan' : gone ? 'Removed in your plan' : `${money(c.salary)} (${c.type})`));
+  if (!p.fa) box.append(el('strong', { className: 'worth' }, valueText(p)));
   const buttons = el('div', {}, el('button', { className: 'quiet', onclick: () => openDetail(p) }, 'Stats'));
   const real = realNews(p);
   if (real) box.append(el('small', { className: 'caveat', title: real.text }, `Real news ${real.date}: ${real.kind === 'released' ? 'let go' : `to ${real.teamName}`}`));
-  if (!out && !acquired && !real) buttons.append(' ', el('button', { onclick: () => openMove(p) }, 'Make move'));
-  if (!p.fa && !out && !gone) buttons.append(el('div', {}, keepButton(p)));
+  if (!out && !acquired && !theirs && !real) buttons.append(' ', el('button', { onclick: () => openMove(p) }, 'Make move'));
+  if (!p.fa && !out && !gone && !theirs) buttons.append(el('div', {}, keepButton(p)));
   box.append(buttons); return box;
 }
 function openDetail(p) {
@@ -155,12 +167,27 @@ function openDetail(p) {
     ...(t ? [el('p', {}, `Contract (${t.source}): ${t.pay.length} yr: ${t.pay.map(money).join(', ')}.`)] : []), ...(s ? [el('p', {}, `Projected from ${s.seasons} of the last ${settings.statYears} seasons, recent ones weighted more.${s.small ? ' Small sample.' : ''}`),
     el('div', { className: 'scroll' }, el('table', {}, row(['Season', ...cols.map(c => c[0])], 'th'), row(['Proj. 2027', ...cols.map(([, k, f]) => f(s[k]))], 'th'),
       ...s.history.map(h => row([String(h.season), ...cols.map(([, k, f]) => f(h[k]))]))))] : [el('p', {}, history[p.id] ? 'No MLB stats in these seasons.' : 'Press Refresh stats on the dashboard.')]));
-  $('detail').showModal();
+  if (!p.fa) $('dbody').prepend(...valuePanel(p));
+  if (!$('detail').open) $('detail').showModal();
+}
+function valuePanel(p) {
+  const v = valueOf(p), rows = valueRows(p, war(p), termsFor(p), settings), key = p.mlbId || p.id;
+  const row = (cells, tag = 'td') => el('tr', {}, ...cells.map(c => el(tag, {}, c)));
+  const input = el('input', { type: 'number', step: 'any', value: v.yours ? v.value : '' });
+  const done = async () => { await refresh(); openDetail(all.find(x => x.id === p.id) || p); };
+  return [el('h3', {}, valueText(p)),
+    ...(rows ? [el('div', { className: 'scroll' }, el('table', {}, row(['Season', 'WAR', 'Worth', 'Salary', 'Counts'], 'th'),
+      ...rows.map(r => row([String(r.season), r.war.toFixed(1), money(r.worth), money(r.pay), money(r.counts)])))),
+      el('small', {}, `Worth is projected WAR in dollars, with an age discount and extra for star seasons. Later years count a little less.${termsFor(p).owed ? '' : ' Salary is not guaranteed, so a losing year counts as zero.'}`)] : [el('p', {}, 'No MLB projection, so the formula has no value for him.')]),
+    el('div', { className: 'row' }, el('label', {}, 'Your value ($M)', input),
+      el('button', { type: 'button', onclick: async () => { if (input.value === '' || !Number.isFinite(+input.value)) return;
+        await db.put('contracts', { id: `value:${key}`, playerId: key, snapshotId: 'value', value: +input.value }); await done(); } }, 'Save'),
+      ...(v.yours ? [el('button', { type: 'button', className: 'quiet', onclick: async () => { await db.remove('contracts', `value:${key}`); await done(); } }, 'Use formula')] : []))];
 }
 // Position headings, each ordered by projected WAR.
 function sections(id, list) {
   const names = [...new Set(list.map(section))].sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
-  const blocks = names.map(n => el('section', {}, el('h2', {}, n), el('div', { className: 'grid' }, ...list.filter(p => section(p) === n).sort(byWar).map(card))));
+  const blocks = names.map(n => el('section', {}, el('h2', {}, n), el('div', { className: 'grid' }, ...list.filter(p => section(p) === n).sort($('rostersort').value === 'value' && id === 'roster' ? byValue : byWar).map(card))));
   $(id).replaceChildren(...blocks);
   $(`${id}jump`).replaceChildren(...names.map((n, i) => el('button', { type: 'button', onclick: () => blocks[i].scrollIntoView({ behavior: 'smooth' }) }, n)));
 }
@@ -209,7 +236,7 @@ function renderTrade() {
   renderNeeds(chosen);
   const unavailable = new Set([...traded('give'), ...traded('get'), ...active(log).filter(d => ['sign', 'release', 'nontender'].includes(d.type)).map(d => d.playerId),
     ...all.filter(p => !p.fa && realNews(p)).map(p => p.id)]);
-  drawTrade({ el, face, war, section, byWar, settings, terms: termsFor, openDetail, keepButton, check: checkMoney, needs, myId: MINE, teamIds: teams.map(t => t.id), teamName,
+  drawTrade({ el, face, war, section, byWar, settings, terms: termsFor, value: valueOf, openDetail, keepButton, check: checkMoney, needs, myId: MINE, teamIds: teams.map(t => t.id), teamName,
     unavailable, own: myRoster(), theirs: rosterOf, chooseTeam: id => { $('needfilter').value = ''; renderTrade(); $('team').value = id; renderTrade(); $('matches').replaceChildren(); },
     saveEdit: async (playerId, e) => { await db.put('contracts', { id: `trade:${playerId}`, playerId, snapshotId: 'trade', ...e }); await refresh(); } });
 }
@@ -231,6 +258,7 @@ function render() {
     meter(onTax ? 'Cash payroll' : 'Cash payroll vs budget', p.cash, onTax ? TIERS[0].at : budget),
     meter(onTax ? 'Tax payroll vs budget' : 'Tax payroll vs first threshold', p.tax, onTax ? budget : TIERS[0].at, TIERS.map(t => t.at)),
     el('small', {}, `Before moves${view ? ' on this date' : ''}: ${money(start.cash)} cash, ${money(start.tax)} tax (change in Settings). ${own.length ? `Player estimates cover ${money(before.cash)} of the cash figure; ${money(start.cash - before.cash)} is unassigned. ` : ''}Gold marks: ${TIERS.map(t => '$' + t.at + 'M').join(', ')} (2026 rules).${p.spots > 40 ? ' Your 40-man is over the limit.' : ''}`));
+  drawSettings();
   $('mode').value = settings.mode; $('custom').value = settings.custom; $('customwrap').hidden = settings.mode !== 'custom';
   $('photos').checked = settings.photos; $('snap').textContent = view ? `Orioles as of ${dateText(view)}` : roster.length ? `Orioles 40-man${settings.rosterDate ? `, loaded ${settings.rosterDate}` : ''}` : 'No roster loaded';
   $('tnow').textContent = view ? `Practice board: ${dateText(view)}${view === OPENING ? ', before any signings' : ''}. Moves here don't count. Built ${new Date(builtAt).toLocaleString()}.` : 'Today. Moves here are live.';
@@ -239,7 +267,10 @@ function render() {
   for (const id of ['load', 'stats5', 'fa', 'check']) $(id).hidden = !!view;
   $('imported').textContent = Object.keys(imports).length ? `${Object.keys(imports).length} contracts imported.` : 'No file imported. All contracts are estimates unless you change them.';
   const acquired = all.filter(p => traded('get').has(p.id));
-  sections('roster', roster.concat(acquired));
+  const who2 = $('rosterteam').value, loaded = teams.filter(t => all.some(p => p.team === t.id));
+  $('rosterteam').replaceChildren(el('option', { value: '' }, 'My team'), ...loaded.map(t => el('option', { value: t.id }, t.name)));
+  $('rosterteam').value = loaded.some(t => t.id === who2) ? who2 : '';
+  sections('roster', $('rosterteam').value ? rosterOf($('rosterteam').value) : roster.concat(acquired));
   sections('market', agents.filter(p => !signing(news.get(p.mlbId)) || active(log).some(d => d.playerId === p.id)));
   document.querySelectorAll('.window').forEach(w => w.value = settings.statYears);
   renderTrade();
@@ -269,6 +300,14 @@ function render() {
   $('payimported').textContent = Object.keys(settings.payrolls || {}).length ? `${Object.keys(settings.payrolls).length} team payrolls imported.` : 'Using the built-in 2026 figures.';
   const who = $('fixwho').value;
   $('fixwho').replaceChildren(...[...roster].sort((a, b) => a.name.localeCompare(b.name)).map(x => el('option', { value: x.id }, x.name))); if (who) $('fixwho').value = who;
+}
+function drawSettings() {
+  if (!$('settings').children.length) $('settings').replaceChildren(...Object.entries(LABELS).map(([k, label]) => {
+    const i = el('input', { type: 'number', step: 'any', min: 0, name: k });
+    i.onchange = () => { settings[k] = Number(i.value); save(); };
+    return el('label', {}, label, i);
+  }));
+  for (const i of $('settings').querySelectorAll('input')) if (i !== document.activeElement) i.value = settings[i.name];
 }
 function renderPlans() {
   const current = active(log), fresh = current.filter(d => !submittedIn(d)), broken = current.filter(d => statusOf(d).state === 'broken');
@@ -550,6 +589,7 @@ $('team').onchange = async () => {
   catch (e) { say(`Couldn't load that roster. ${e.message}. Choose another team, then try again.`); renderTrade(); }
 };
 $('needfilter').onchange = () => renderTrade();
+$('rosterteam').onchange = $('rostersort').onchange = () => render();
 $('scan').onclick = async () => {
   if (view) return;
   if (!roster.length) return say('Load the roster on the dashboard first.');
@@ -644,23 +684,26 @@ async function cleanOldContracts() {
   const rows = await db.all('contracts');
   for (const c of rows.filter(c => c.type === 'my fix' && c.snapshotId !== 'fix').sort((a, b) => a.snapshotId.localeCompare(b.snapshotId)))
     await db.put('contracts', { id: `fix:${c.playerId}`, playerId: c.playerId, snapshotId: 'fix', salary: c.salary, aav: c.aav });
-  for (const c of rows) if (!['trade', 'fix', 'import'].includes(c.snapshotId)) await db.remove('contracts', c.id);
+  for (const c of rows) if (!['trade', 'fix', 'import', 'value'].includes(c.snapshotId)) await db.remove('contracts', c.id);
+}
+// Saved settings keep old defaults, so replace the outdated payroll figures once. Numbers you changed stay.
+async function updatePayrollDefaults() {
+  const saved = (await db.all('settings'))[0]; if (!saved || saved.payrollDefaults === 2) return;
+  const next = { ...saved, payrollDefaults: 2 };
+  if (saved.baselineCash === 170) next.baselineCash = BASE.baselineCash;
+  if (saved.baselineTax === 186) next.baselineTax = BASE.baselineTax;
+  await db.put('settings', next);
 }
 async function upgrade() {
-  await cleanOldContracts(); await refresh();
+  await updatePayrollDefaults(); await cleanOldContracts(); await refresh();
   if (!roster.length || settings.rosterSource === 'mlb') return;
   say('Updating your roster from MLB…');
   try { await loadOwnRoster(); await refresh(); say('Roster updated. Contracts are now estimates.'); }
   catch (e) { say(`Couldn't update the roster. ${e.message}. Press Load roster to retry.`); }
 }
 $('restore').onchange = async e => { try { await db.restore(JSON.parse(await e.target.files[0].text())); view = null; await upgrade(); say('Backup restored.'); } catch (err) { say(`Couldn't restore. ${err.message}.`); } };
-const LABELS = { budget2027: 'Realistic budget ($M cash)', baselineCash: 'Cash payroll before moves ($M)', baselineTax: 'Tax payroll before moves ($M)', dollarsPerWar: 'Market $M per WAR', injuryBase: 'Base injury discount (0-1)', injuryPerYearOver30: 'Added per year over 30', rosterSpotCost: '40-man spot cost ($M)', decline28to30: 'WAR lost per year, ages 28-30', declineFrom31: 'WAR lost per year, 31 and up' };
+const LABELS = { budget2027: 'Realistic budget ($M cash)', baselineCash: 'Cash payroll before moves ($M)', baselineTax: 'Tax payroll before moves ($M)', dollarsPerWar: 'Market $M per WAR', injuryBase: 'Base injury discount (0-1)', injuryPerYearOver30: 'Added per year over 30', rosterSpotCost: '40-man spot cost ($M)', futureDiscount: 'Trade value discount per later year (0-1)', decline28to30: 'WAR lost per year, ages 28-30', declineFrom31: 'WAR lost per year, 31 and up' };
 show('dash'); await refresh();
-$('settings').replaceChildren(...Object.entries(LABELS).map(([k, label]) => {
-  const i = el('input', { type: 'number', step: 'any', min: 0, value: settings[k] });
-  i.onchange = () => { settings[k] = Number(i.value); save(); };
-  return el('label', {}, label, i);
-}));
 const today = new Date().toLocaleDateString('en-CA');
 $('lock').textContent = today >= '2026-12-02' ? 'A lockout was expected from Dec. 2. Check its status before treating a new move as realistic.' : 'Labor deal expires Dec. 1. A lockout is expected to freeze moves after that.';
 await upgrade();

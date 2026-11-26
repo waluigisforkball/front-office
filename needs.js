@@ -1,4 +1,4 @@
-import { balance } from './trade.js?v=11';
+import { balance } from './trade.js?v=12';
 export const SPOTS = ['C', '1B', '2B', '3B', 'SS', 'OF', 'SP', 'RP'];
 const DEPTH = { OF: 3, SP: 5, RP: 5 };
 // total = projected WAR of the starters at a spot; bar = the weakest of those starters.
