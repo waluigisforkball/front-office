@@ -13,6 +13,11 @@ export function payroll(players, contracts, log, other) {
   for (const p of players) { const c = contracts[p.id]; const cash = c?.salary ?? null;
     lines.set(p.id, { cash, tax: c?.aav ?? AAV[p.name] ?? cash, spot: true, owed: AAV[p.name] !== undefined }); }
   for (const d of active(log)) {
+    if (d.type === 'trade') {
+      for (const p of d.give) lines.set(p.id, { cash: 0, tax: 0, spot: false });
+      for (const p of d.get) lines.set(p.id, { cash: p.pay[0], tax: p.pay[0], spot: true, owed: true });
+      continue;
+    }
     const line = lines.get(d.playerId);
     if (d.type === 'sign') lines.set(d.playerId, { cash: d.aav, tax: d.aav, spot: true, owed: true });
     if (d.type === 'minor') lines.set(d.playerId, { cash: d.aav, tax: d.aav, spot: false });

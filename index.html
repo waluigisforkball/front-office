@@ -1,25 +1,34 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css?v=4"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=6"></head><body>
 <header><h1>Front Office</h1><span id="snap">No snapshot loaded</span></header>
 <main>
 <p id="lock" class="panel warn"></p>
-<nav id="tabs"><button data-tab="dash">Dashboard</button><button data-tab="roster">Roster</button><button data-tab="market">Free agents</button><button data-tab="log">Moves</button><button data-tab="tools">Settings</button></nav>
+<nav id="tabs"><button data-tab="dash">Dashboard</button><button data-tab="roster">Roster</button><button data-tab="market">Free agents</button><button data-tab="trade">Trade</button><button data-tab="log">Moves</button><button data-tab="tools">Settings</button></nav>
 <p id="msg" role="status"></p>
 <div data-view="dash">
 <section class="panel"><div class="row"><label>Budget<select id="mode"><option value="realistic">Realistic</option><option value="unleashed">Unleashed</option><option value="custom">Custom</option></select></label><label id="customwrap">Custom budget ($M)<input id="custom" type="number" min="0" step="1"></label></div>
 <div class="stats row" id="stats"></div><div id="meters"></div></section>
-<section class="panel"><div class="row"><button id="load">Load snapshot</button><button id="proj">Get projections</button></div></section>
+<section class="panel"><div class="row"><button id="load">Load snapshot</button><button id="proj">Get projections</button><button id="stats5">Get stats</button></div></section>
 </div>
 <div data-view="roster">
-<div class="row"><label>Show<select id="filter"><option value="all">Everyone</option><option value="P">Pitchers</option><option value="Position">Position players</option></select></label><label>Sort<select id="sort"><option value="name">Name</option><option value="war">Projected WAR</option><option value="salary">Salary</option><option value="age">Age</option></select></label></div>
-<section id="roster" class="grid"></section>
-<details class="panel" id="depthbox"><summary>Depth chart</summary><div id="depth" class="grid"></div></details>
+<div class="row"><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
+<div id="rosterjump" class="jump"></div><div id="roster"></div>
 </div>
 <div data-view="market">
-<div class="row"><button id="fa">Load free agents</button><label>Position<select id="fapos"><option value="all">All</option></select></label><label>Sort<select id="fasort"><option value="war">Projected WAR</option><option value="age">Age</option><option value="name">Name</option></select></label></div>
+<div class="row"><button id="fa">Load free agents</button><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
 <p><small>Unsigned as listed on Nov. 25, 2026. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
-<section id="market" class="grid"></section>
+<div id="marketjump" class="jump"></div><div id="market"></div>
+</div>
+<div data-view="trade">
+<div class="row"><label>Trade partner<select id="team"><option value="">Choose a team</option></select></label></div>
+<section class="panel"><h2>Value balance</h2><div class="balance"><i id="needle"></i></div><div class="ends"><span>Favors them</span><span>Favors you</span></div><p id="verdict"></p></section>
+<div class="sides">
+<section class="panel" id="givezone"><h2>You give</h2><div id="givebasket" class="basket"></div><label>Find an Oriole<input id="givefind" placeholder="Name or position"></label><div id="givepool" class="pool"></div></section>
+<section class="panel" id="getzone"><h2>You get</h2><div id="getbasket" class="basket"></div><label>Find their player<input id="getfind" placeholder="Name or position"></label><div id="getpool" class="pool"></div></section>
+</div>
+<form id="tradeform" class="panel"><label>Why this trade?<textarea id="twhy" rows="3"></textarea></label><div class="row"><label>Confidence<select id="tconf"><option>Low</option><option selected>Medium</option><option>High</option></select></label><label>Alternatives considered<input id="tother"></label></div><p id="terror" role="alert"></p><button>Lock in trade</button></form>
+<p><small>Value is projected surplus over each player's remaining years. Other teams' terms are estimates until you edit them. No retained salary, cash or draft picks.</small></p>
 </div>
 <div data-view="log"><section id="timeline"></section></div>
 <div data-view="tools">
@@ -29,6 +38,7 @@
 <section class="panel"><h2>Backup</h2><div class="row"><button id="export">Download backup</button><label>Restore backup<input type="file" id="restore" accept=".json"></label></div></section>
 </div>
 </main>
+<dialog id="detail"><h2 id="dname"></h2><div id="dbody"></div><button type="button" class="quiet" id="dclose">Close</button></dialog>
 <dialog id="move"><form id="moveform"><h2 id="movename"></h2><p id="movewar"></p>
 <label>Move<select id="mtype"></select></label>
 <div class="row"><label>Years<input id="myears" type="number" min="1" max="15" value="1" required></label><label>Cost per year ($M)<input id="maav" type="number" min="0" step="any" required></label></div>
@@ -38,4 +48,4 @@
 <label>Other alternatives considered<input id="mother"></label>
 <p id="mscore"></p><div id="mforecast"><table id="mrows"></table><small>Estimate: flat cost and $ per win, with your age decline and injury discount.</small></div><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
 <div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
-<script type="module" src="app.js?v=5"></script></body></html>
+<script type="module" src="app.js?v=6"></script></body></html>

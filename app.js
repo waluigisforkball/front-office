@@ -3,25 +3,39 @@ import { parseCSV } from './csv.js';
 import { hitter, pitcher } from './projections.js';
 import { DEFAULTS, processScore } from './grading.js';
 import { forecast } from './forecast.js';
-import { TIERS, AAV, active, payroll } from './payroll.js';
+import { TIERS, AAV, active, payroll } from './payroll.js?v=6';
+import { projectStats, COLUMNS } from './stats.js?v=6';
+import { drawTrade, setupTrade, clearReceived } from './tradeui.js?v=6';
 
 const SNAP = '2026-11-25', API = 'https://statsapi.mlb.com/api/v1', $ = id => document.getElementById(id);
-const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18, decline28to30: .25, declineFrom31: .5 };
+const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18, decline28to30: .25, declineFrom31: .5, statYears: 3 };
+let history = {}, edits = {}, teams = [];
+const ORDER = ['SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'IF', 'OF', 'DH', 'TWP'];
 let all = [], roster = [], agents = [], contracts = {}, proj = {}, log = [], snapId = SNAP, settings = BASE, picked = null;
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
-const money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(1) + 'M';
+const money = v => (v <= -.05 ? '-$' : '$') + Math.abs(v).toFixed(1) + 'M';
 const say = t => $('msg').textContent = t;
 const plain = s => s.normalize('NFD').replace(/[̀-ͯ.]/g, '').toLowerCase();
 const war = p => proj[p.id]?.war ?? null;
-const sorter = key => (a, b) => key === 'name' ? a.name.localeCompare(b.name) : key === 'age' ? (a.age ?? 99) - (b.age ?? 99)
-  : key === 'salary' ? (contracts[b.id]?.salary ?? -1) - (contracts[a.id]?.salary ?? -1) : (war(b) ?? -99) - (war(a) ?? -99);
+const byWar = (a, b) => (war(b) ?? -99) - (war(a) ?? -99) || a.name.localeCompare(b.name);
+const statsFor = p => history[p.id] ? projectStats(history[p.id], p.group === 'P', settings.statYears) : null;
+// Pitchers split into starters and relievers from games started.
+function section(p) {
+  if (p.group !== 'P') return p.pos && p.pos !== 'P' ? p.pos : 'Other';
+  if (p.pos === 'SP' || p.pos === 'RP') return p.pos;
+  const s = statsFor(p); return s ? (s.starter ? 'SP' : 'RP') : 'Pitchers, no MLB stats';
+}
+const traded = side => new Set(active(log).filter(d => d.type === 'trade').flatMap(d => d[side].map(p => p.id)));
 
 async function refresh() {
   settings = { ...BASE, ...(await db.all('settings'))[0] };
-  all = await db.all('players'); roster = all.filter(p => !p.fa); agents = all.filter(p => p.fa);
+  all = await db.all('players'); roster = all.filter(p => !p.fa && !p.team); agents = all.filter(p => p.fa);
   const snaps = (await db.all('snapshots')).map(s => s.id).sort(); snapId = snaps.at(-1) || SNAP;
   contracts = Object.fromEntries((await db.all('contracts')).filter(c => c.snapshotId === snapId).map(c => [c.playerId, c]));
   proj = Object.fromEntries((await db.all('projections')).map(p => [p.playerId, p]));
+  history = Object.fromEntries((await db.all('results')).filter(r => r.id.startsWith('stats:')).map(r => [r.playerId, r.splits]));
+  edits = Object.fromEntries((await db.all('contracts')).filter(c => c.snapshotId === 'trade').map(c => [c.playerId, c]));
+  teams = (await db.all('teams')).filter(t => t.id !== 'BAL').sort((a, b) => a.name.localeCompare(b.name));
   log = (await db.all('decisions')).sort((a, b) => a.at.localeCompare(b.at));
   render();
 }
@@ -45,14 +59,37 @@ function fit(p) {
 function card(p) {
   const c = contracts[p.id], w = war(p), gone = active(log).some(d => d.playerId === p.id && ['release', 'nontender'].includes(d.type));
   const signed = active(log).find(d => d.playerId === p.id && ['sign', 'minor'].includes(d.type));
+  const out = traded('give').has(p.id), acquired = !!p.team;
   const box = el('article', { className: 'card' }, face(p), el('strong', {}, p.name),
-    el('small', {}, `${p.pos || (p.group === 'P' ? 'Pitcher' : 'Position')}, age ${p.age ?? '?'}`),
+    el('small', {}, `${section(p).startsWith('Pitchers') ? 'P' : section(p)}, age ${p.age ?? '?'}`),
     el('div', { className: 'war' }, w === null ? 'No proj.' : `${w.toFixed(1)} WAR`));
-  if (p.fa) box.append(el('small', {}, w === null ? 'No model value' : `Model value ${money(Math.max(.8, w * settings.dollarsPerWar))}`),
+  const s = statsFor(p), cols = COLUMNS[p.group === 'P' ? 'pit' : 'hit'];
+  if (s) box.append(el('div', { className: 'line' }, ...cols.slice(0, 4).map(([label, key, fmt]) => el('span', {}, `${label} ${fmt(s[key])}`))),
+    el('small', {}, `${s.seasons} of ${settings.statYears} seasons${s.small ? ', small sample' : ''}`));
+  else box.append(el('small', {}, history[p.id] ? 'No MLB stats in range' : 'Stats not loaded'));
+  if (p.fa) box.append(el('small', {}, w === null ? 'No model value' : `Model value ${money(modelValue(p))}`),
     el('div', {}, el('span', { className: 'tag' }, signed ? 'In your plan' : fit(p))));
-  else box.append(el('small', { title: c?.note || '' }, gone ? 'Removed in your plan' : c?.salary != null ? `${money(c.salary)} (${c.type})` : 'Salary missing'));
-  box.append(el('button', { onclick: () => openMove(p) }, 'Make move'));
-  return box;
+  else if (acquired) box.append(el('div', {}, el('span', { className: 'tag' }, 'Acquired by trade')));
+  else box.append(el('small', { title: c?.note || '' }, out ? 'Traded in your plan' : gone ? 'Removed in your plan' : c?.salary != null ? `${money(c.salary)} (${c.type})` : 'Salary missing'));
+  const buttons = el('div', {}, el('button', { className: 'quiet', onclick: () => openDetail(p) }, 'Stats'));
+  if (!out && !acquired) buttons.append(' ', el('button', { onclick: () => openMove(p) }, 'Make move'));
+  box.append(buttons); return box;
+}
+function openDetail(p) {
+  const s = statsFor(p), cols = COLUMNS[p.group === 'P' ? 'pit' : 'hit'];
+  $('dname').textContent = p.name;
+  const row = (cells, tag = 'td') => el('tr', {}, ...cells.map(c => el(tag, {}, c)));
+  $('dbody').replaceChildren(...(s ? [el('p', {}, `Projected from ${s.seasons} of the last ${settings.statYears} seasons, recent ones weighted more.${s.small ? ' Small sample.' : ''}`),
+    el('div', { className: 'scroll' }, el('table', {}, row(['Season', ...cols.map(c => c[0])], 'th'), row(['Proj. 2027', ...cols.map(([, k, f]) => f(s[k]))], 'th'),
+      ...s.history.map(h => row([String(h.season), ...cols.map(([, k, f]) => f(h[k]))]))))] : [el('p', {}, history[p.id] ? 'No MLB stats in these seasons.' : 'Press Get stats on the dashboard.')]));
+  $('detail').showModal();
+}
+// Position headings, each ordered by projected WAR.
+function sections(id, list) {
+  const names = [...new Set(list.map(section))].sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
+  const blocks = names.map(n => el('section', {}, el('h2', {}, n), el('div', { className: 'grid' }, ...list.filter(p => section(p) === n).sort(byWar).map(card))));
+  $(id).replaceChildren(...blocks);
+  $(`${id}jump`).replaceChildren(...names.map((n, i) => el('button', { type: 'button', onclick: () => blocks[i].scrollIntoView({ behavior: 'smooth' }) }, n)));
 }
 function meter(label, value, limit, marks = []) {
   const max = Math.max(value, limit, ...marks, 1) * 1.05, over = value > limit;
@@ -72,18 +109,24 @@ function render() {
     el('small', {}, `Gold marks: ${TIERS.map(t => '$' + t.at + 'M').join(', ')} (2026 rules; 2027 depends on the new labor deal). Estimates include ${money(settings.otherTaxCosts)} of other tax costs.${p.spots > 40 ? ' Your 40-man is over the limit.' : ''}`));
   $('mode').value = settings.mode; $('custom').value = settings.custom; $('customwrap').hidden = settings.mode !== 'custom';
   $('photos').checked = settings.photos; $('snap').textContent = roster.length ? `Orioles, snapshot ${snapId.replace('T', ' ')}` : 'No snapshot loaded';
-  const f = $('filter').value;
-  $('roster').replaceChildren(...roster.filter(x => f === 'all' || x.group === f).sort(sorter($('sort').value)).map(card));
-  const spots = [...new Set(roster.map(x => x.pos).filter(Boolean))].sort();
-  $('depth').replaceChildren(...(spots.length ? spots.map(s => el('div', {}, el('h2', {}, s), ...roster.filter(x => x.pos === s).sort(sorter('war')).map(x => el('div', {}, `${x.name} ${war(x)?.toFixed(1) ?? '-'}`)))) : [el('p', {}, 'Load free agents to fill in positions.')]));
-  const fp = $('fapos').value;
-  $('fapos').replaceChildren(el('option', { value: 'all' }, 'All'), ...[...new Set(agents.map(a => a.pos))].sort().map(s => el('option', { value: s }, s))); $('fapos').value = fp;
-  $('market').replaceChildren(...agents.filter(x => fp === 'all' || x.pos === fp).sort(sorter($('fasort').value)).map(card));
+  const acquired = all.filter(p => traded('get').has(p.id));
+  sections('roster', roster.concat(acquired));
+  sections('market', agents);
+  document.querySelectorAll('.window').forEach(w => w.value = settings.statYears);
+  const chosen = $('team').value;
+  $('team').replaceChildren(el('option', { value: '' }, 'Choose a team'), ...teams.map(t => el('option', { value: t.id }, t.name))); $('team').value = chosen;
+  const unavailable = new Set([...traded('give'), ...traded('get'), ...active(log).filter(d => ['release', 'nontender'].includes(d.type)).map(d => d.playerId)]);
+  drawTrade({ el, face, war, section, byWar, settings, contracts, edits, unavailable, own: roster, theirs: id => all.filter(p => p.team === id),
+    saveEdit: async (playerId, e) => { await db.put('contracts', { id: `trade:${playerId}`, playerId, snapshotId: 'trade', ...e }); await refresh(); } });
   const voided = new Set(log.map(d => d.voids));
   $('timeline').replaceChildren(...(log.length ? [...log].reverse().map(d => {
     const item = el('article', { className: 'panel' }, el('strong', { className: voided.has(d.id) ? 'voided' : '' }, `${d.label}: ${d.name}`),
       el('div', {}, new Date(d.at).toLocaleString()));
-    if (d.type !== 'void') item.append(el('div', {}, `${d.years} yr at ${money(d.aav)}. Expected ${d.expectedWar} WAR, ${d.confidence.toLowerCase()} confidence. Process surplus ${d.process ? money(d.process.surplus) : 'not scored'}.${d.process?.vsBest != null ? ` Versus best alternative ${money(d.process.vsBest)}.` : ''}`));
+    if (d.type === 'trade') {
+      const names = list => list.map(p => `${p.name} (${p.surplus === null ? 'not valued' : money(p.surplus)}; ${p.source})`).join(', ');
+      item.append(el('div', {}, `Gave: ${names(d.give)}`), el('div', {}, `Got: ${names(d.get)}`),
+        el('div', {}, `Net projected surplus ${money(d.process.surplus)}${d.process.unvalued ? ' (incomplete)' : ''}. ${d.confidence} confidence.`));
+    } else if (d.type !== 'void') item.append(el('div', {}, `${d.years} yr at ${money(d.aav)}. Expected ${d.expectedWar} WAR, ${d.confidence.toLowerCase()} confidence. Process surplus ${d.process ? money(d.process.surplus) : 'not scored'}.${d.process?.vsBest != null ? ` Versus best alternative ${money(d.process.vsBest)}.` : ''}`));
     if (d.forecast?.length > 1) item.append(el('div', {}, `Forecast surplus over ${d.forecast.length} years: ${money(d.forecast.reduce((a, r) => a + r.surplus, 0))}.`));
     item.append(el('p', {}, d.why));
     if (d.alternatives?.length || d.other) item.append(el('small', {}, `Alternatives: ${[...(d.alternatives || []).map(a => a.name), d.other].filter(Boolean).join(', ')}`));
@@ -91,7 +134,7 @@ function render() {
     return item;
   }) : [el('p', {}, 'Make your first move from the roster or free agent board.')]));
   const who = $('fixwho').value;
-  $('fixwho').replaceChildren(...[...roster].sort(sorter('name')).map(x => el('option', { value: x.id }, x.name))); if (who) $('fixwho').value = who;
+  $('fixwho').replaceChildren(...[...roster].sort((a, b) => a.name.localeCompare(b.name)).map(x => el('option', { value: x.id }, x.name))); if (who) $('fixwho').value = who;
 }
 const TYPES = { fa: { sign: 'Sign', minor: 'Minor league deal' }, own: { tender: 'Tender', nontender: 'Non-tender', extend: 'Extend', release: 'Release' } };
 const modelValue = p => Math.max(.8, war(p) * settings.dollarsPerWar);
@@ -107,7 +150,7 @@ function openMove(p) {
   $('movename').textContent = p.name; $('movewar').textContent = war(p) === null ? 'No projection saved, so there is no projected value.' : `Projected ${war(p).toFixed(1)} WAR. Model value ${money(modelValue(p))} per year.`;
   $('mtype').replaceChildren(...Object.entries(TYPES[p.fa ? 'fa' : 'own']).map(([v, t]) => el('option', { value: v }, t)));
   typedCost = false; $('mwar').value = war(p)?.toFixed(1) ?? '';
-  $('malts').replaceChildren(...agents.filter(a => a.id !== p.id).sort(sorter('war')).map(a => el('option', { value: a.id }, `${a.name} (${a.pos}, ${war(a)?.toFixed(1) ?? '-'} WAR)`)));
+  $('malts').replaceChildren(...agents.filter(a => a.id !== p.id).sort(byWar).map(a => el('option', { value: a.id }, `${a.name} (${a.pos}, ${war(a)?.toFixed(1) ?? '-'} WAR)`)));
   fillCost(); scoreMove(); $('move').showModal();
 }
 const altList = () => [...$('malts').selectedOptions].map(o => agents.find(a => a.id === o.value))
@@ -157,9 +200,13 @@ $('cancel').onclick = () => $('move').close();
 for (const id of ['mtype', 'maav', 'malts', 'myears']) $(id).oninput = scoreMove;
 
 async function getStats(ids) {
-  const res = await fetch(`${API}/people?personIds=${ids}&hydrate=stats(group=[hitting,pitching],type=[yearByYear])`);
-  if (!res.ok) throw new Error(`MLB returned ${res.status}`);
-  return (await res.json()).people;
+  const out = [];
+  for (let i = 0; i < ids.length; i += 40) {
+    const res = await fetch(`${API}/people?personIds=${ids.slice(i, i + 40)}&hydrate=stats(group=[hitting,pitching],type=[yearByYear])`);
+    if (!res.ok) throw new Error(`MLB returned ${res.status}`);
+    out.push(...(await res.json()).people);
+  }
+  return out;
 }
 function project(p, m) {
   const group = p.group === 'P' ? 'pitching' : 'hitting';
@@ -226,8 +273,52 @@ $('fix').onsubmit = async e => {
 };
 const show = tab => { document.querySelectorAll('[data-view]').forEach(v => v.hidden = v.dataset.view !== tab);
   $('tabs').querySelectorAll('button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false')); say(''); };
-$('tabs').onclick = e => e.target.dataset.tab && show(e.target.dataset.tab);
-for (const id of ['filter', 'sort', 'fapos', 'fasort']) $(id).onchange = render;
+$('tabs').onclick = e => { const t = e.target.dataset.tab; if (!t) return; show(t); if (t === 'trade') loadTeams(); };
+document.querySelectorAll('.window').forEach(w => w.onchange = () => { settings.statYears = +w.value; save(); });
+$('dclose').onclick = () => $('detail').close();
+setupTrade(async t => {
+  const names = list => list.map(p => p.name).join(', '), key = crypto.randomUUID();
+  await db.add('decisions', { id: key, type: 'trade', label: 'Trade', playerId: `trade:${key}`, name: `${names(t.give)} for ${names(t.get)}`, ...t,
+    teamId: $('team').value, at: new Date().toISOString(), snapshotId: snapId, assumptions: { ...settings },
+    projections: [...t.give, ...t.get].map(p => proj[p.id] || null) });
+  await refresh(); say('Trade locked.');
+});
+// Save each player's season history; saved WAR projections are never overwritten.
+async function saveStats(players, people) {
+  for (const p of players) { const m = people.find(x => String(x.id) === p.mlbId); if (!m) continue;
+    const group = p.group === 'P' ? 'pitching' : 'hitting';
+    await db.put('results', { id: `stats:${p.id}`, playerId: p.id, splits: m.stats?.find(s => s.group.displayName === group)?.splits || [] });
+    const next = { ...p, pos: p.fa ? p.pos : spot(m) || p.pos, debut: m.mlbDebutDate ? +m.mlbDebutDate.slice(0, 4) : null };
+    await db.put('players', next); }
+}
+$('stats5').onclick = async () => {
+  const list = all.filter(p => p.mlbId); if (!list.length) return say('Load the snapshot first.');
+  say('Getting season stats from MLB…');
+  try { await saveStats(list, await getStats(list.map(p => p.mlbId))); await refresh(); say('Stats saved.'); }
+  catch (e) { say(`Couldn't get stats. ${e.message}. Try again.`); }
+};
+$('team').onchange = async () => {
+  const id = $('team').value; clearReceived();
+  if (!id || all.some(p => p.team === id)) return render();
+  say('Loading their 40-man roster…');
+  try {
+    const res = await fetch(`${API}/teams/${id}/roster?rosterType=40Man`); if (!res.ok) throw new Error(`MLB returned ${res.status}`);
+    const list = (await res.json()).roster || []; if (!list.length) throw new Error('No players returned');
+    const people = await getStats(list.map(r => r.person.id));
+    const players = people.map(m => ({ id: `t:${id}:${m.id}`, team: id, mlbId: String(m.id), name: m.fullName, age: m.currentAge ?? null,
+      pos: spot(m), group: m.primaryPosition?.abbreviation === 'P' ? 'P' : 'Position' }));
+    await saveStats(players, people);
+    for (const p of players) { const m = people.find(x => String(x.id) === p.mlbId); await db.put('projections', project(p, m)); }
+    await refresh(); say(`Loaded ${players.length} players.`);
+  } catch (e) { say(`Couldn't load that roster. ${e.message}. Choose another team, then try again.`); render(); }
+};
+async function loadTeams() {
+  if (teams.length) return;
+  try { const res = await fetch(`${API}/teams?sportId=1`); if (!res.ok) throw new Error(`MLB returned ${res.status}`);
+    for (const t of (await res.json()).teams) if (t.id !== 110) await db.put('teams', { id: String(t.id), name: t.name, mlbId: t.id });
+    await refresh();
+  } catch (e) { say(`Couldn't load the team list. ${e.message}. Open Trade again to retry.`); }
+}
 const save = async () => { await db.put('settings', settings); render(); };
 $('photos').onchange = e => { settings.photos = e.target.checked; save(); };
 $('mode').onchange = e => { settings.mode = e.target.value; save(); };
