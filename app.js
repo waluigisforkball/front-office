@@ -95,13 +95,20 @@ function render() {
 }
 const TYPES = { fa: { sign: 'Sign', minor: 'Minor league deal' }, own: { tender: 'Tender', nontender: 'Non-tender', extend: 'Extend', release: 'Release' } };
 const modelValue = p => Math.max(.8, war(p) * settings.dollarsPerWar);
+let typedCost = false;
+// Fill the yearly cost unless you've typed your own.
+function fillCost() {
+  if (typedCost) return;
+  const type = $('mtype').value, model = war(picked) === null ? '' : modelValue(picked).toFixed(1);
+  $('maav').value = type === 'sign' || type === 'extend' ? model : type === 'minor' ? '0.8' : contracts[picked.id]?.salary ?? '';
+}
 function openMove(p) {
   picked = p; $('moveform').reset();
   $('movename').textContent = p.name; $('movewar').textContent = war(p) === null ? 'No projection saved, so there is no projected value.' : `Projected ${war(p).toFixed(1)} WAR. Model value ${money(modelValue(p))} per year.`;
   $('mtype').replaceChildren(...Object.entries(TYPES[p.fa ? 'fa' : 'own']).map(([v, t]) => el('option', { value: v }, t)));
-  $('maav').value = contracts[p.id]?.salary ?? ''; $('mwar').value = war(p)?.toFixed(1) ?? '';
+  typedCost = false; $('mwar').value = war(p)?.toFixed(1) ?? '';
   $('malts').replaceChildren(...agents.filter(a => a.id !== p.id).sort(sorter('war')).map(a => el('option', { value: a.id }, `${a.name} (${a.pos}, ${war(a)?.toFixed(1) ?? '-'} WAR)`)));
-  scoreMove(); $('move').showModal();
+  fillCost(); scoreMove(); $('move').showModal();
 }
 const altList = () => [...$('malts').selectedOptions].map(o => agents.find(a => a.id === o.value))
   .map(a => ({ id: a.id, name: a.name, age: a.age, war: war(a), cost: war(a) === null ? null : Math.max(.8, war(a) * settings.dollarsPerWar) }));
@@ -144,6 +151,8 @@ $('moveform').onsubmit = async e => {
     projection: proj[p.id] || null, assumptions: { ...settings }, process: scoreNow(), forecast: forecastNow() });
   $('move').close(); await refresh(); say(`Move locked: ${p.name}.`);
 };
+$('maav').addEventListener('input', () => typedCost = true);
+$('mtype').addEventListener('input', () => { fillCost(); scoreMove(); });
 $('cancel').onclick = () => $('move').close();
 for (const id of ['mtype', 'maav', 'malts', 'myears']) $(id).oninput = scoreMove;
 
