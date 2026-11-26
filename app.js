@@ -1,21 +1,26 @@
-import * as db from './db.js?v=10';
+import * as db from './db.js?v=11';
 import { parseCSV } from './csv.js';
 import { hitter, pitcher } from './projections.js';
 import { DEFAULTS, processScore } from './grading.js';
 import { forecast } from './forecast.js';
-import { TIERS, active, payroll, taxBill } from './payroll.js?v=10';
-import { projectStats, COLUMNS } from './stats.js?v=10';
-import { drawTrade, setupTrade, clearReceived, search } from './tradeui.js?v=10';
-import { terms, importRows, plain } from './contracts.js?v=10';
-import { SPOTS, leagueNeeds } from './needs.js?v=10';
-import { PAYROLL, tier, room, theyAfford, youAfford, importPayrolls } from './budgets.js?v=10';
-import { byPlayer, signing, departure, moveStatus } from './news.js?v=10';
+import { TIERS, active, payroll, taxBill } from './payroll.js?v=11';
+import { projectStats, COLUMNS } from './stats.js?v=11';
+import { drawTrade, setupTrade, clearReceived, clearAll, search } from './tradeui.js?v=11';
+import { terms, importRows, plain } from './contracts.js?v=11';
+import { SPOTS, leagueNeeds } from './needs.js?v=11';
+import { PAYROLL, tier, room, theyAfford, youAfford, importPayrolls } from './budgets.js?v=11';
+import { byPlayer, signing, departure, moveStatus } from './news.js?v=11';
+import { OPENING, boardState } from './timemachine.js?v=11';
 
 const SNAP = '2026-11-25', API = 'https://statsapi.mlb.com/api/v1', $ = id => document.getElementById(id);
 const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, decline28to30: .25, declineFrom31: .5, statYears: 3, untouchable: [], budget2027: 185, baselineCash: 170, baselineTax: 186 };
 let books = { cash: 0, tax: 0 }, submissions = [], news = new Map(), checked = null;
 let history = {}, edits = {}, fixes = {}, imports = {}, teams = [], needs = null, effective = new Map(), statCache = new Map();
 const MINE = '110';
+// view is the Time Machine date; null means today. liveBefore is today's estimated roster cost.
+let view = null, builtAt = null, liveBefore = null;
+const dateText = d => new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const addDecision = move => db.add('decisions', view ? { ...move, scenario: view } : move);
 const ORDER = ['SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'IF', 'OF', 'DH', 'TWP'];
 let all = [], roster = [], agents = [], contracts = {}, proj = {}, log = [], snapId = SNAP, settings = BASE, picked = null;
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
@@ -84,8 +89,14 @@ async function refresh() {
   const results = await db.all('results'), tx = results.find(r => r.id === 'tx');
   submissions = results.filter(r => r.kind === 'submission').sort((a, b) => a.number - b.number);
   news = byPlayer(tx?.transactions || []); checked = tx?.at || null;
+  submissions = submissions.filter(s => (s.scenario || null) === view);
   teams = (await db.all('teams')).filter(t => t.id !== 'BAL' && t.id !== MINE).sort((a, b) => a.name.localeCompare(b.name));
-  log = (await db.all('decisions')).sort((a, b) => a.at.localeCompare(b.at));
+  log = (await db.all('decisions')).filter(d => (d.scenario || null) === view).sort((a, b) => a.at.localeCompare(b.at));
+  if (view) { // A past board replaces today's players, and later real moves stay hidden.
+    const board = results.find(r => r.id === `board:${view}`);
+    all = board.players; roster = all.filter(p => !p.fa && !p.team); agents = all.filter(p => p.fa);
+    proj = board.proj; history = board.history; builtAt = board.builtAt; snapId = view; news = new Map(); checked = null;
+  }
   render();
 }
 function face(p) {
@@ -179,7 +190,7 @@ function renderNeeds(chosen) {
   const loaded = teams.filter(t => all.some(p => p.team === t.id)).length;
   const chips = (title, id, mine) => el('div', { className: 'needrow' }, el('strong', {}, title), ...topNeeds(id).map(n =>
     el('button', { type: 'button', className: 'need', disabled: !mine, title: mine ? 'Find a match' : '', onclick: () => search(n.spot) }, `${n.spot}: ${n.rank} of ${n.of}`)));
-  $('scan').hidden = !!needs;
+  $('scan').hidden = !!needs || !!view;
   $('needs').replaceChildren(...(needs ? [chips('Your needs', MINE, true), ...(chosen ? [chips(`${teamName(chosen)} needs`, chosen, false)] : []),
     ...(chosen && payrolls()[chosen] ? [el('p', {}, `${teamName(chosen)}: ${money(payrolls()[chosen])} payroll (${tier(payrolls()[chosen])}). Room to add about ${money(room(chosen, usedBy(chosen), payrolls()))} in trades.`)] : []),
     el('small', {}, 'League rank by projected WAR (30 is weakest). OF counts three players, SP and RP five. Tap one of yours to find a match.')]
@@ -206,8 +217,11 @@ function render() {
   effective = new Map();
   contracts = Object.fromEntries(all.filter(x => !x.fa).map(x => { const t = termsFor(x); return [x.id, { salary: t.pay[0], aav: t.aav, type: t.source, owed: t.owed }]; }));
   // Team totals start from a known payroll; your moves add to it or subtract from it.
-  const own = roster, before = payroll(own, contracts, [], 0), p = payroll(own, contracts, log, 0), gap = settings.baselineCash - before.cash;
-  if (own.length) { p.cash = settings.baselineCash + p.cash - before.cash; p.tax = settings.baselineTax + p.tax - before.tax; p.bill = taxBill(p.tax); }
+  const own = roster, before = payroll(own, contracts, [], 0), p = payroll(own, contracts, log, 0);
+  if (!view) liveBefore = before;
+  const anchor = liveBefore || before;
+  const start = { cash: settings.baselineCash + before.cash - anchor.cash, tax: settings.baselineTax + before.tax - anchor.tax };
+  if (own.length) { p.cash = start.cash + p.cash - before.cash; p.tax = start.tax + p.tax - before.tax; p.bill = taxBill(p.tax); }
   books = p;
   const stat = (l, v) => el('div', {}, l, el('b', {}, v));
   $('stats').replaceChildren(stat('40-man', `${p.spots}/40`), stat('Est. tax bill', money(p.bill)), stat('Estimated salaries', String(roster.filter(x => contracts[x.id].type === 'estimate').length)), stat('Moves', String(active(log).length)));
@@ -216,9 +230,13 @@ function render() {
   $('meters').replaceChildren(
     meter(onTax ? 'Cash payroll' : 'Cash payroll vs budget', p.cash, onTax ? TIERS[0].at : budget),
     meter(onTax ? 'Tax payroll vs budget' : 'Tax payroll vs first threshold', p.tax, onTax ? budget : TIERS[0].at, TIERS.map(t => t.at)),
-    el('small', {}, `Before moves: ${money(settings.baselineCash)} cash, ${money(settings.baselineTax)} tax (change in Settings). ${own.length ? `Player estimates cover ${money(before.cash)} of the cash figure; ${money(gap)} is unassigned. ` : ''}Gold marks: ${TIERS.map(t => '$' + t.at + 'M').join(', ')} (2026 rules).${p.spots > 40 ? ' Your 40-man is over the limit.' : ''}`));
+    el('small', {}, `Before moves${view ? ' on this date' : ''}: ${money(start.cash)} cash, ${money(start.tax)} tax (change in Settings). ${own.length ? `Player estimates cover ${money(before.cash)} of the cash figure; ${money(start.cash - before.cash)} is unassigned. ` : ''}Gold marks: ${TIERS.map(t => '$' + t.at + 'M').join(', ')} (2026 rules).${p.spots > 40 ? ' Your 40-man is over the limit.' : ''}`));
   $('mode').value = settings.mode; $('custom').value = settings.custom; $('customwrap').hidden = settings.mode !== 'custom';
-  $('photos').checked = settings.photos; $('snap').textContent = roster.length ? `Orioles 40-man${settings.rosterDate ? `, loaded ${settings.rosterDate}` : ''}` : 'No roster loaded';
+  $('photos').checked = settings.photos; $('snap').textContent = view ? `Orioles as of ${dateText(view)}` : roster.length ? `Orioles 40-man${settings.rosterDate ? `, loaded ${settings.rosterDate}` : ''}` : 'No roster loaded';
+  $('tnow').textContent = view ? `Practice board: ${dateText(view)}${view === OPENING ? ', before any signings' : ''}. Moves here don't count. Built ${new Date(builtAt).toLocaleString()}.` : 'Today. Moves here are live.';
+  $('timebar').classList.toggle('practice', !!view); $('tback').hidden = !view;
+  if (view) $('tdate').value = view;
+  for (const id of ['load', 'stats5', 'fa', 'check']) $(id).hidden = !!view;
   $('imported').textContent = Object.keys(imports).length ? `${Object.keys(imports).length} contracts imported.` : 'No file imported. All contracts are estimates unless you change them.';
   const acquired = all.filter(p => traded('get').has(p.id));
   sections('roster', roster.concat(acquired));
@@ -239,10 +257,10 @@ function render() {
     if (d.alternatives?.length || d.other) item.append(el('small', {}, `Alternatives: ${[...(d.alternatives || []).map(a => a.name), d.other].filter(Boolean).join(', ')}`));
     if (d.type !== 'void' && !voided.has(d.id)) {
       const sent = submittedIn(d), status = statusOf(d);
-      item.append(el('div', {}, el('span', { className: 'tag' }, sent ? `Submitted in plan ${sent.number}` : 'Not submitted'),
+      item.append(el('div', {}, el('span', { className: 'tag' }, sent ? `Submitted in ${view ? 'practice ' : ''}plan ${sent.number}` : 'Not submitted'),
         ...(status.state === 'ok' ? [] : [' ', el('span', { className: `tag ${status.state}` }, status.state === 'broken' ? 'Broken by real news' : 'Happened in real life')])));
       if (status.reason) item.append(el('p', { className: 'caveat' }, status.reason));
-      if (!sent) item.append(el('div', {}, el('button', { className: 'quiet', onclick: () => voidMove(d) }, 'Void')));
+      if (!sent || view) item.append(el('div', {}, el('button', { className: 'quiet', onclick: () => voidMove(d) }, 'Void')));
       else if (status.state === 'broken') item.append(el('div', {}, el('button', { onclick: () => replaceMove(d, status) }, 'Replace this move')));
     }
     return item;
@@ -254,12 +272,12 @@ function render() {
 }
 function renderPlans() {
   const current = active(log), fresh = current.filter(d => !submittedIn(d)), broken = current.filter(d => statusOf(d).state === 'broken');
-  const last = submissions.at(-1), dropped = last && last.moves.some(m => !current.some(d => d.id === m.id));
-  $('submit').disabled = !current.length || (!!last && !fresh.length && !dropped);
-  $('submit').textContent = last ? `Resubmit as plan ${submissions.length + 1}` : 'Submit plan';
-  $('plansum').textContent = `${fresh.length} not submitted. ${broken.length} broken. ${checked ? `Last checked ${new Date(checked).toLocaleString()}.` : 'Not checked for real news yet.'}`;
+  // Submit is always available: standing pat is a decision too.
+  $('submit').disabled = false;
+  $('submit').textContent = view ? `Save practice plan ${submissions.length + 1}` : submissions.length ? `Submit plan ${submissions.length + 1}` : 'Submit plan';
+  $('plansum').textContent = view ? `${fresh.length} not saved in a plan. Later real moves are hidden. Practice moves can be voided anytime.` : `${fresh.length} not submitted. ${broken.length} broken. ${checked ? `Last checked ${new Date(checked).toLocaleString()}.` : 'Not checked for real news yet.'}`;
   $('plans').replaceChildren(...[...submissions].reverse().map(s => el('div', { className: 'offer' },
-    el('div', {}, el('strong', {}, `Plan ${s.number}`), el('small', {}, `${new Date(s.at).toLocaleString()}, ${s.moves.length} move(s)`)),
+    el('div', {}, el('strong', {}, `${view ? 'Practice plan' : 'Plan'} ${s.number}`), el('small', {}, `${new Date(s.at).toLocaleString()}, ${s.moves.length} move(s)`)),
     el('button', { type: 'button', onclick: () => openReport(s) }, 'View report'))));
 }
 // A picture of the market at the moment you submit.
@@ -274,14 +292,14 @@ function fieldNow() {
 }
 async function submitPlan() {
   $('submit').disabled = true;
-  const got = await checkNews();
+  const got = view ? false : await checkNews();
   const broken = active(log).filter(d => statusOf(d).state === 'broken' && !submittedIn(d));
   if (broken.length) { render(); return say(`Not submitted. ${broken.length} new move(s) are broken by real news. Void them first.`); }
-  if (!got && !confirm("Couldn't check for real news. Submit anyway?")) return render();
+  if (!view && !got && !confirm("Couldn't check for real news. Submit anyway?")) return render();
   const at = new Date().toISOString(), number = submissions.length + 1;
   await db.add('results', { id: `sub:${at}`, kind: 'submission', number, at, snapshotId: SNAP, newsChecked: got,
-    moves: active(log).map(d => ({ ...d, statusThen: statusOf(d) })), field: fieldNow() });
-  await refresh(); say(`Plan ${number} submitted.`);
+    moves: active(log).map(d => ({ ...d, statusThen: statusOf(d) })), field: fieldNow(), ...(view ? { scenario: view } : {}) });
+  await refresh(); say(view ? `Practice plan ${number} saved.` : `Plan ${number} submitted.`);
 }
 async function checkNews() {
   try {
@@ -294,7 +312,7 @@ async function checkNews() {
 }
 async function replaceMove(d, status) {
   if (!confirm(`Remove "${d.label}: ${d.name}" so you can make a new move? The original stays in plan history.`)) return;
-  await db.add('decisions', { id: crypto.randomUUID(), type: 'void', label: 'Replaced', voids: d.id, playerId: d.playerId, name: d.name, why: `Broken by real news. ${status.reason}`, at: new Date().toISOString() });
+  await addDecision({ id: crypto.randomUUID(), type: 'void', label: 'Replaced', voids: d.id, playerId: d.playerId, name: d.name, why: `Broken by real news. ${status.reason}`, at: new Date().toISOString() });
   await refresh(); say('Removed. Make your new move, then resubmit.');
 }
 function openReport(s) {
@@ -306,15 +324,15 @@ function openReport(s) {
   const ids = new Set([...f.roster, ...f.agents, ...f.partners.flatMap(t => t.players)].map(p => p.mlbId).filter(Boolean));
   const day = new Date(s.at).toLocaleDateString('en-CA');
   const since = [...ids].flatMap(id => news.get(id) || []).filter(t => t.date >= day).sort((a, b) => b.date.localeCompare(a.date));
-  $('rname').textContent = `Plan ${s.number}`;
-  $('rbody').replaceChildren(el('p', {}, `Submitted ${new Date(s.at).toLocaleString()}.${s.newsChecked ? '' : ' Real news could not be checked at the time.'}`),
-    h('Your moves'), list(s.moves.map(m => { const now = statusOf(m);
-      return `${m.label}: ${m.name} (made ${new Date(m.at).toLocaleDateString()})\nYour reason: ${m.why}${now.state === 'ok' ? '' : `\n${now.state === 'broken' ? 'Now broken' : 'Happened in real life'}: ${now.reason}`}`; })),
+  $('rname').textContent = `${s.scenario ? 'Practice plan' : 'Plan'} ${s.number}`;
+  $('rbody').replaceChildren(el('p', {}, s.scenario ? `Saved ${new Date(s.at).toLocaleString()} on the ${dateText(s.scenario)} board.` : `Submitted ${new Date(s.at).toLocaleString()}.${s.newsChecked ? '' : ' Real news could not be checked at the time.'}`),
+    h('Your moves'), list(s.moves.length ? s.moves.map(m => { const now = statusOf(m);
+      return `${m.label}: ${m.name} (made ${new Date(m.at).toLocaleDateString()})\nYour reason: ${m.why}${now.state === 'ok' ? '' : `\n${now.state === 'broken' ? 'Now broken' : 'Happened in real life'}: ${now.reason}`}`; }) : ['No moves: you stood pat.']),
     h('The field then'), el('p', {}, `Cash ${money(f.cash)}, tax ${money(f.tax)}, budget ${money(f.budget)} (${f.mode}). 40-man ${f.spots}/40.`),
     el('p', {}, `Your needs: ${needText(f.needs)}`), fold('Your roster', f.roster), fold('Free agent board', f.agents),
     ...f.partners.flatMap(t => [el('p', {}, `${t.name}: ${t.payroll ? `${money(t.payroll)} payroll. ` : ''}Needs: ${needText(t.needs)}`), fold(`${t.name} roster`, t.players)]),
-    h('Changed since'), since.length ? list(since.slice(0, 60).map(t => `${t.date}: ${t.description || `${t.person.fullName}, ${t.typeDesc}`}`))
-      : el('p', {}, checked ? 'No transactions found involving these players.' : 'Press Check for updates to look.'));
+    ...(s.scenario ? [] : [h('Changed since'), since.length ? list(since.slice(0, 60).map(t => `${t.date}: ${t.description || `${t.person.fullName}, ${t.typeDesc}`}`))
+      : el('p', {}, checked ? 'No transactions found involving these players.' : 'Press Check for updates to look.')]));
   $('report').showModal();
 }
 const TYPES = { fa: { sign: 'Sign', minor: 'Minor league deal' }, own: { tender: 'Tender', nontender: 'Non-tender', extend: 'Extend', release: 'Release' } };
@@ -362,7 +380,7 @@ function scoreMove() {
 }
 async function voidMove(d) {
   const why = prompt('Why are you voiding this move?'); if (!why?.trim()) return;
-  await db.add('decisions', { id: crypto.randomUUID(), type: 'void', label: 'Voided', voids: d.id, playerId: d.playerId, name: d.name, why: why.trim(), at: new Date().toISOString() });
+  await addDecision({ id: crypto.randomUUID(), type: 'void', label: 'Voided', voids: d.id, playerId: d.playerId, name: d.name, why: why.trim(), at: new Date().toISOString() });
   await refresh();
 }
 $('moveform').onsubmit = async e => {
@@ -370,7 +388,7 @@ $('moveform').onsubmit = async e => {
   if (!$('mwhy').value.trim()) return say('Add your reasoning.');
   if (realNews(p)) { $('mscore').textContent = 'Real news has moved this player. Pick someone else.'; return; }
   if (active(log).some(d => d.playerId === p.id && d.type === type)) { $('mscore').textContent = 'You already have this move. Void it first.'; return; }
-  await db.add('decisions', { id: crypto.randomUUID(), type, label: $('mtype').selectedOptions[0].text, playerId: p.id, name: p.name,
+  await addDecision({ id: crypto.randomUUID(), type, label: $('mtype').selectedOptions[0].text, playerId: p.id, name: p.name,
     years: +$('myears').value, aav: +$('maav').value, expectedWar: +$('mwar').value, confidence: $('mconf').value, why: $('mwhy').value.trim(),
     alternatives: altList(), other: $('mother').value.trim(), at: new Date().toISOString(), snapshotId: snapId,
     projection: proj[p.id] || null, assumptions: { ...settings }, process: scoreNow(), forecast: forecastNow() });
@@ -490,7 +508,7 @@ $('paytemplate').onclick = async () => { await loadTeams(); const names = Object
 $('payreset').onclick = async () => { settings.payrolls = {}; await save(); say('Back to the built-in payrolls.'); };
 setupTrade(async t => {
   const names = list => list.map(p => p.name).join(', '), key = crypto.randomUUID(), teamId = $('team').value;
-  await db.add('decisions', { id: key, type: 'trade', label: 'Trade', playerId: `trade:${key}`, name: `${names(t.give)} for ${names(t.get)}`, ...t,
+  await addDecision({ id: key, type: 'trade', label: 'Trade', playerId: `trade:${key}`, name: `${names(t.give)} for ${names(t.get)}`, ...t,
     teamId, at: new Date().toISOString(), snapshotId: snapId, assumptions: { ...settings },
     projections: [...t.give, ...t.get].map(p => proj[p.id] || null) });
   $('donebody').replaceChildren(el('p', {}, `With ${teamName(teamId)}.`), el('p', {}, `You gave: ${names(t.give)}`), el('p', {}, `You got: ${names(t.get)}`),
@@ -526,13 +544,14 @@ async function loadTeamRoster(id) {
 }
 $('team').onchange = async () => {
   const id = $('team').value; clearReceived(); $('matches').replaceChildren();
-  if (!id || all.some(p => p.team === id)) return renderTrade();
+  if (!id || view || all.some(p => p.team === id)) return renderTrade();
   say('Loading their 40-man roster…');
   try { const n = await loadTeamRoster(id); await refresh(); say(`Loaded ${n} players.`); }
   catch (e) { say(`Couldn't load that roster. ${e.message}. Choose another team, then try again.`); renderTrade(); }
 };
 $('needfilter').onchange = () => renderTrade();
 $('scan').onclick = async () => {
+  if (view) return;
   if (!roster.length) return say('Load the roster on the dashboard first.');
   $('scan').disabled = true;
   try {
@@ -553,6 +572,64 @@ async function loadTeams() {
     await refresh();
   } catch (e) { say(`Couldn't load the team list. ${e.message}. Open Trade again to retry.`); }
 }
+// Rebuild the whole league as it stood on a date, from MLB rosters and transactions.
+async function buildBoard(date) {
+  await loadTeams(); if (teams.length < 29) throw new Error('No team list');
+  const today = new Date().toLocaleDateString('en-CA');
+  const res = await fetch(`${API}/transactions?sportId=1&startDate=2026-10-01&endDate=${today}`); if (!res.ok) throw new Error(`MLB returned ${res.status}`);
+  const transactions = (await res.json()).transactions?.filter(t => t.person); if (!transactions) throw new Error('Unexpected reply');
+  const [y, m, d] = date.split('-'), rosters = new Map(), clubs = Object.keys(PAYROLL).map(Number);
+  for (const [i, id] of clubs.entries()) {
+    say(`Building ${dateText(date)}: roster ${i + 1} of ${clubs.length}…`);
+    const r = await fetch(`${API}/teams/${id}/roster?rosterType=40Man&season=${y}&date=${m}/${d}/${y}`); if (!r.ok) throw new Error(`MLB returned ${r.status}`);
+    const list = (await r.json()).roster || []; if (!list.length) throw new Error('MLB sent an empty roster');
+    rosters.set(id, list.map(x => x.person.id));
+  }
+  const state = boardState(rosters, transactions, date);
+  // Today's saved free agent list helps cover players with no transaction on record.
+  const placed = new Set([...state.teams.values()].flat());
+  const saved = await db.all('players'), taken = new Set(state.taken);
+  const free = new Set([...state.free, ...saved.filter(p => p.fa && p.mlbId && !placed.has(p.mlbId) && !taken.has(p.mlbId)).map(p => p.mlbId)]);
+  // Players you already have keep the same projection on every board.
+  const stored = new Map((await db.all('projections')).map(x => [x.playerId, x]));
+  const frozen = new Map(saved.filter(p => stored.get(p.id)?.war != null).map(p => [p.mlbId, stored.get(p.id)]));
+  say(`Building ${dateText(date)}: player stats…`);
+  const people = new Map((await getStats([...placed, ...free])).map(x => [String(x.id), x]));
+  const board = { id: `board:${date}`, kind: 'board', date, builtAt: new Date().toISOString(), players: [], proj: {}, history: {} }, names = new Set();
+  const add = (mlb, extra) => {
+    const x = people.get(mlb); if (!x) return;
+    const group = x.primaryPosition?.abbreviation === 'P' ? 'P' : 'Position';
+    const p = { id: extra.id || `fa:${names.has(x.fullName) ? `${x.fullName} ${mlb}` : x.fullName}`, mlbId: mlb, name: x.fullName, age: x.currentAge ?? null, pos: spot(x), group,
+      debut: x.mlbDebutDate ? +x.mlbDebutDate.slice(0, 4) : null, ...extra };
+    const splits = x.stats?.find(s => s.group.displayName === (group === 'P' ? 'pitching' : 'hitting'))?.splits || [];
+    const out = frozen.has(mlb) ? { ...frozen.get(mlb), id: `${SNAP}:${p.id}`, playerId: p.id } : project(p, x);
+    if (p.fa) { if (out.war == null) return; names.add(x.fullName); if (group === 'P') p.pos = projectStats(splits, true, 3)?.starter ? 'SP' : 'RP'; }
+    board.players.push(p); board.proj[p.id] = out; board.history[p.id] = splits;
+  };
+  for (const [team, ids] of state.teams) for (const mlb of ids) add(mlb, String(team) === MINE ? { id: mlb } : { id: `t:${team}:${mlb}`, team: String(team) });
+  for (const mlb of free) add(mlb, { fa: true });
+  // Only the latest board is kept, to save space. Your practice moves and plans stay.
+  for (const r of await db.all('results')) if (r.kind === 'board') await db.remove('results', r.id);
+  await db.put('results', board);
+}
+async function travel(date) {
+  const today = new Date().toLocaleDateString('en-CA');
+  if (!date || date < OPENING || date > today) return say(`Pick a date from ${dateText(OPENING)} to today.`);
+  if (!view && !roster.length) return say('Load the roster on the dashboard first.');
+  const buttons = ['tgo', 'topen', 'tback'].map($); buttons.forEach(b => b.disabled = true);
+  let note = '';
+  try { await buildBoard(date); }
+  catch (e) {
+    if ((await db.all('results')).some(r => r.id === `board:${date}`)) note = ` Couldn't rebuild (${e.message}), so this is the saved copy.`;
+    else { say(`Couldn't build that board. ${e.message}. You're still on ${view ? dateText(view) : 'today'}.`); buttons.forEach(b => b.disabled = false); return; }
+  }
+  view = date; resetTrade(); await refresh(); say(`Showing ${dateText(date)}.${note}`); buttons.forEach(b => b.disabled = false);
+}
+function resetTrade() { clearAll(); $('team').value = ''; $('needfilter').value = ''; $('matches').replaceChildren(); $('matchspot').replaceChildren(); }
+$('tdate').min = OPENING; $('tdate').max = $('tdate').value = new Date().toLocaleDateString('en-CA');
+$('tgo').onclick = () => travel($('tdate').value);
+$('topen').onclick = () => travel(OPENING);
+$('tback').onclick = async () => { view = null; resetTrade(); $('tdate').value = $('tdate').max; await refresh(); say('Back to today.'); };
 const save = async () => { await db.put('settings', settings); statCache = new Map(); render(); };
 $('photos').onchange = e => { settings.photos = e.target.checked; save(); };
 $('mode').onchange = e => { settings.mode = e.target.value; save(); };
@@ -576,7 +653,7 @@ async function upgrade() {
   try { await loadOwnRoster(); await refresh(); say('Roster updated. Contracts are now estimates.'); }
   catch (e) { say(`Couldn't update the roster. ${e.message}. Press Load roster to retry.`); }
 }
-$('restore').onchange = async e => { try { await db.restore(JSON.parse(await e.target.files[0].text())); await upgrade(); say('Backup restored.'); } catch (err) { say(`Couldn't restore. ${err.message}.`); } };
+$('restore').onchange = async e => { try { await db.restore(JSON.parse(await e.target.files[0].text())); view = null; await upgrade(); say('Backup restored.'); } catch (err) { say(`Couldn't restore. ${err.message}.`); } };
 const LABELS = { budget2027: 'Realistic budget ($M cash)', baselineCash: 'Cash payroll before moves ($M)', baselineTax: 'Tax payroll before moves ($M)', dollarsPerWar: 'Market $M per WAR', injuryBase: 'Base injury discount (0-1)', injuryPerYearOver30: 'Added per year over 30', rosterSpotCost: '40-man spot cost ($M)', decline28to30: 'WAR lost per year, ages 28-30', declineFrom31: 'WAR lost per year, 31 and up' };
 show('dash'); await refresh();
 $('settings').replaceChildren(...Object.entries(LABELS).map(([k, label]) => {

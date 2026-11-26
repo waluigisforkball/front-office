@@ -1,9 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css?v=10"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=11"></head><body>
 <header><h1>Front Office</h1><span id="snap">No roster loaded</span></header>
 <main>
 <p id="lock" class="panel warn"></p>
+<section id="timebar" class="panel"><details><summary><strong>Time Machine</strong> <span id="tnow">Today. Moves here are live.</span></summary>
+<div class="row"><label>Show the board as of<input type="date" id="tdate"></label><button type="button" id="tgo">Go</button><button type="button" class="quiet" id="topen">Clean board (Nov 2)</button><button type="button" id="tback" hidden>Back to today</button></div>
+<p><small>Rebuilt from MLB rosters and transactions each time you open a date. It can take a minute. Contracts are estimates, and stats are the same on every date.</small></p></details></section>
 <nav id="tabs"><button data-tab="dash">Dashboard</button><button data-tab="roster">Roster</button><button data-tab="market">Free agents</button><button data-tab="trade">Trade</button><button data-tab="log">Moves</button><button data-tab="tools">Settings</button></nav>
 <p id="msg" role="status"></p>
 <div data-view="dash">
@@ -57,4 +60,4 @@
 <label>Other alternatives considered<input id="mother"></label>
 <p id="mscore"></p><div id="mforecast"><table id="mrows"></table><small>Estimate: flat cost and $ per win, with your age decline and injury discount.</small></div><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
 <div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
-<script type="module" src="app.js?v=10"></script></body></html>
+<script type="module" src="app.js?v=11"></script></body></html>

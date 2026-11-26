@@ -1,4 +1,4 @@
-import { PAYROLL } from './budgets.js?v=10';
+import { PAYROLL } from './budgets.js?v=11';
 // Reads MLB transaction records and works out which of your moves real life has overtaken.
 export const ORIOLES = 110;
 const isClub = t => !!t && PAYROLL[t.id] !== undefined;
@@ -12,6 +12,13 @@ export function byPlayer(transactions) {
   return map;
 }
 const event = (t, kind) => ({ kind, team: t.toTeam?.id, teamName: t.toTeam?.name, date: t.date, text: t.description || `${t.person.fullName}: ${t.typeDesc}` });
+// sign: joins a club as a free agent. move: changes clubs. leave: becomes available.
+export function kindOf(t) {
+  if ((t.typeCode === 'SFA' || SIGNED.test(t.typeDesc)) && isClub(t.toTeam)) return 'sign';
+  if ((t.typeCode === 'TR' || t.typeCode === 'CLW' || CHANGES.test(t.typeDesc)) && isClub(t.toTeam)) return 'move';
+  if (LEFT.test(t.typeDesc) && (isClub(t.fromTeam) || isClub(t.toTeam))) return 'leave';
+  return null;
+}
 // A free agent who has signed with a major league club.
 export function signing(list = []) {
   const t = list.findLast(t => (t.typeCode === 'SFA' || SIGNED.test(t.typeDesc)) && isClub(t.toTeam));
