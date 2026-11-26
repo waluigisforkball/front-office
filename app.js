@@ -2,10 +2,11 @@ import * as db from './db.js';
 import { parseCSV } from './csv.js';
 import { hitter, pitcher } from './projections.js';
 import { DEFAULTS, processScore } from './grading.js';
+import { forecast } from './forecast.js';
 import { TIERS, AAV, active, payroll } from './payroll.js';
 
 const SNAP = '2026-11-25', API = 'https://statsapi.mlb.com/api/v1', $ = id => document.getElementById(id);
-const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18 };
+const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18, decline28to30: .25, declineFrom31: .5 };
 let all = [], roster = [], agents = [], contracts = {}, proj = {}, log = [], snapId = SNAP, settings = BASE, picked = null;
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(1) + 'M';
@@ -83,6 +84,7 @@ function render() {
     const item = el('article', { className: 'panel' }, el('strong', { className: voided.has(d.id) ? 'voided' : '' }, `${d.label}: ${d.name}`),
       el('div', {}, new Date(d.at).toLocaleString()));
     if (d.type !== 'void') item.append(el('div', {}, `${d.years} yr at ${money(d.aav)}. Expected ${d.expectedWar} WAR, ${d.confidence.toLowerCase()} confidence. Process surplus ${d.process ? money(d.process.surplus) : 'not scored'}.${d.process?.vsBest != null ? ` Versus best alternative ${money(d.process.vsBest)}.` : ''}`));
+    if (d.forecast?.length > 1) item.append(el('div', {}, `Forecast surplus over ${d.forecast.length} years: ${money(d.forecast.reduce((a, r) => a + r.surplus, 0))}.`));
     item.append(el('p', {}, d.why));
     if (d.alternatives?.length || d.other) item.append(el('small', {}, `Alternatives: ${[...(d.alternatives || []).map(a => a.name), d.other].filter(Boolean).join(', ')}`));
     if (d.type !== 'void' && !voided.has(d.id)) item.append(el('div', {}, el('button', { className: 'quiet', onclick: () => voidMove(d) }, 'Void')));
@@ -107,7 +109,21 @@ function scoreNow() {
   if (war(picked) === null || $('maav').value === '' || !['sign', 'minor', 'extend', 'tender'].includes($('mtype').value)) return null;
   return processScore({ war: war(picked), cost: +$('maav').value, age: picked.age }, altList().filter(a => a.war !== null), settings);
 }
+function forecastNow() {
+  const years = Math.floor(+$('myears').value);
+  if (war(picked) === null || picked.age == null || $('maav').value === '' || !(years >= 1 && years <= 15) || !['sign', 'minor', 'extend', 'tender'].includes($('mtype').value)) return null;
+  return forecast({ war: war(picked), age: picked.age, cost: +$('maav').value, years }, settings);
+}
+function showForecast() {
+  const rows = forecastNow(); $('mforecast').hidden = !rows; if (!rows) return;
+  const line = (cells, tag = 'td') => el('tr', {}, ...cells.map(c => el(tag, {}, String(c))));
+  const sum = k => rows.reduce((a, r) => a + r[k], 0);
+  $('mrows').replaceChildren(line(['Year', 'Age', 'WAR', 'Value', 'Surplus'], 'th'),
+    ...rows.map(r => line([r.season, r.age, r.war.toFixed(1), money(r.value), money(r.surplus)])),
+    line(['Total', '', sum('war').toFixed(1), money(sum('value')), money(sum('surplus'))], 'th'));
+}
 function scoreMove() {
+  showForecast();
   const s = scoreNow();
   if (!s) { $('mscore').textContent = war(picked) === null ? '' : 'Enter a cost to see the surplus. Cuts are not scored.'; return; }
   const gap = modelValue(picked) - $('maav').value, years = +$('myears').value || 1;
@@ -125,7 +141,7 @@ $('moveform').onsubmit = async e => {
   await db.add('decisions', { id: crypto.randomUUID(), type, label: $('mtype').selectedOptions[0].text, playerId: p.id, name: p.name,
     years: +$('myears').value, aav: +$('maav').value, expectedWar: +$('mwar').value, confidence: $('mconf').value, why: $('mwhy').value.trim(),
     alternatives: altList(), other: $('mother').value.trim(), at: new Date().toISOString(), snapshotId: snapId,
-    projection: proj[p.id] || null, assumptions: { ...settings }, process: scoreNow() });
+    projection: proj[p.id] || null, assumptions: { ...settings }, process: scoreNow(), forecast: forecastNow() });
   $('move').close(); await refresh(); say(`Move locked: ${p.name}.`);
 };
 $('cancel').onclick = () => $('move').close();
@@ -212,7 +228,7 @@ $('export').onclick = async () => {
   a.click(); URL.revokeObjectURL(a.href);
 };
 $('restore').onchange = async e => { try { await db.restore(JSON.parse(await e.target.files[0].text())); await refresh(); say('Backup restored.'); } catch (err) { say(`Couldn't restore. ${err.message}.`); } };
-const LABELS = { realisticBudget: 'Realistic budget ($M cash)', otherTaxCosts: 'Other tax payroll costs ($M)', dollarsPerWar: 'Market $M per WAR', injuryBase: 'Base injury discount (0-1)', injuryPerYearOver30: 'Added per year over 30', rosterSpotCost: '40-man spot cost ($M)' };
+const LABELS = { realisticBudget: 'Realistic budget ($M cash)', otherTaxCosts: 'Other tax payroll costs ($M)', dollarsPerWar: 'Market $M per WAR', injuryBase: 'Base injury discount (0-1)', injuryPerYearOver30: 'Added per year over 30', rosterSpotCost: '40-man spot cost ($M)', decline28to30: 'WAR lost per year, ages 28-30', declineFrom31: 'WAR lost per year, 31 and up' };
 show('dash'); await refresh();
 // One-time correction: Peralta's reported terms were blank in the first snapshot.
 const fp = roster.find(p => p.name === 'Freddy Peralta');

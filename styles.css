@@ -23,3 +23,5 @@ textarea,#moveform label{width:100%}textarea{background:var(--bg);color:var(--in
 dialog{background:var(--panel);color:var(--ink);border:3px solid var(--gold);border-radius:12px;width:min(480px,94vw)}dialog::backdrop{background:#000a}
 #moveform label{margin-top:10px}#moveform .row label{flex:1;min-width:130px}
 #timeline{display:grid;gap:10px}.voided{opacity:.6;text-decoration:line-through}
+#mrows{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px}#mrows th,#mrows td{text-align:right;padding:4px 2px;border-bottom:1px solid var(--line)}#mrows th:first-child,#mrows td:first-child{text-align:left}
+#moveform input,#moveform select{width:100%;min-width:0}
