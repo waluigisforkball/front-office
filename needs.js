@@ -1,4 +1,4 @@
-import { balance } from './trade.js?v=8';
+import { balance } from './trade.js?v=10';
 export const SPOTS = ['C', '1B', '2B', '3B', 'SS', 'OF', 'SP', 'RP'];
 const DEPTH = { OF: 3, SP: 5, RP: 5 };
 // total = projected WAR of the starters at a spot; bar = the weakest of those starters.
@@ -20,7 +20,7 @@ const TIERS = [{ name: 'fit', gap: 1, slack: 1, upgrade: .5, wants: 3 }, { name:
 const open = p => !p.locked && !p.untouchable && p.surplus !== null && p.war < STAR;
 // One-for-one offers: they send an upgrade at your spot, you send help at one of their needs.
 // Good fits come first; looser "long shots" fill any remaining places.
-export function findMatches({ spot, mine, others, needs, myId, limit = 5 }) {
+export function findMatches({ spot, mine, others, needs, myId, limit = 5, check = () => ({ level: 'ok', notes: [] }) }) {
   const myNeeds = needs.get(myId).slice(0, 3).map(n => n.spot), myBar = strength(mine, spot).bar, out = [], targets = new Set(), used = {};
   for (const tier of TIERS) {
     const found = [];
@@ -32,8 +32,11 @@ export function findMatches({ spot, mine, others, needs, myId, limit = 5 }) {
         for (const give of offers) {
           const { net } = balance([give], [get]), even = Math.max(5, .15 * Math.max(Math.abs(give.surplus), Math.abs(get.surplus)));
           const gap = get.war - give.war;
-          if (Math.abs(net) <= even * tier.slack && Math.abs(gap) <= tier.gap)
-            found.push({ teamId, give, get, net, gap, even, tier: tier.name, score: get.war - myBar - Math.abs(net) / 10 - Math.abs(gap) });
+          if (Math.abs(net) > even * tier.slack || Math.abs(gap) > tier.gap) continue;
+          // Good fits must be affordable for both clubs; long shots may stretch a budget.
+          const cash = check(teamId, [give], [get]);
+          if (cash.level === 'no' || (tier.name === 'fit' && cash.level !== 'ok')) continue;
+            found.push({ teamId, give, get, net, gap, even, cash, tier: tier.name, score: get.war - myBar - Math.abs(net) / 10 - Math.abs(gap) });
         }
     }
     for (const m of found.sort((a, b) => b.score - a.score)) {
@@ -52,6 +55,7 @@ export function caveats(m) {
   if (m.net < -m.even) list.push('You give up more value.');
   if (m.gap > 1) list.push('They may say no: you get more talent.');
   if (m.gap < -1) list.push('You give up more talent.');
+  list.push(...(m.cash?.notes || []));
   if (m.tier === 'long' && !list.length) list.push('Small upgrade or a weaker need for them.');
   const unsure = [m.give, m.get].filter(p => p.source === 'estimate' && p.owed).map(p => p.name);
   if (unsure.length) list.push(`Contract unknown (estimated veteran deal): ${unsure.join(', ')}.`);

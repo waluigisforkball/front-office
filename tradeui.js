@@ -1,5 +1,5 @@
-import { tradeValue, balance } from './trade.js?v=8';
-import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=8';
+import { tradeValue, balance } from './trade.js?v=10';
+import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=10';
 const $ = id => document.getElementById(id);
 const PAGE = 6;
 const basket = { give: [], get: [] }, view = { give: { spot: '', page: 0 }, get: { spot: '', page: 0 } };
@@ -66,6 +66,7 @@ export function drawTrade(next) {
   column('give'); column('get'); clearError();
   const give = selected('give'), get = selected('get'), b = balance(give, get), ready = give.length && get.length;
   const share = Math.max(0, Math.min(100, 50 + b.net / Math.max(20, Math.abs(b.out), Math.abs(b.back)) * 50));
+  $('moneyline').replaceChildren(...(ready ? ctx.check($('team').value, give, get).lines.map(([text, bad]) => ctx.el('p', { className: bad ? 'caveat' : '' }, text)) : []));
   $('needle').style.left = `${ready ? share : 50}%`;
   $('verdict').textContent = !ready ? 'Add at least one player to each side.' : b.unknown ? `${b.unknown} player(s) not valued, so this balance is incomplete.`
     : `${b.verdict} You give ${money(b.out)} of surplus and get ${money(b.back)}. Net ${money(b.net)}. Talent ${b.talent >= 0 ? '+' : ''}${b.talent.toFixed(1)} WAR.`;
@@ -76,11 +77,12 @@ export function search(spot) {
   const { el } = ctx, box = $('matches'); $('matchspot').value = spot;
   if (!ctx.needs) return box.replaceChildren(el('p', {}, 'Scan the league first.'));
   const usable = list => list.map(p => ({ ...describe(p), spot: spotOf(p), locked: ctx.unavailable.has(p.id), untouchable: ctx.settings.untouchable.includes(p.id) }));
-  const found = findMatches({ spot, mine: usable(ctx.own), others: new Map(ctx.teamIds.map(id => [id, usable(ctx.theirs(id))])), needs: ctx.needs, myId: ctx.myId });
+  const found = findMatches({ spot, mine: usable(ctx.own), others: new Map(ctx.teamIds.map(id => [id, usable(ctx.theirs(id))])), needs: ctx.needs, myId: ctx.myId, check: ctx.check });
   const offer = m => el('div', { className: 'offer' },
     el('div', {}, el('strong', {}, `${ctx.teamName(m.teamId)}`),
       el('small', {}, `You get ${m.get.name} (${m.get.pos}, ${m.get.war.toFixed(1)} WAR)`),
       el('small', {}, `You give ${m.give.name} (${m.give.pos}, ${m.give.war.toFixed(1)} WAR). Net ${money(m.net)}.`),
+      el('small', {}, m.cash.summary),
       ...caveats(m).map(text => el('small', { className: 'caveat' }, text))),
     el('button', { type: 'button', onclick: () => load(m) }, 'Review offer'));
   const group = (title, tier) => { const list = found.filter(m => m.tier === tier); return list.length ? [el('h3', {}, title), ...list.map(offer)] : []; };
