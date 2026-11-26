@@ -36,5 +36,5 @@ export function pitcher(splits, age) {
   const starter = gs / g > .5;
   const time = .5 * (by[2026] || 0) + .1 * (by[2025] || 0) + (starter ? 60 : 25);
   const war = ((starter ? 5.2 : 4.4) - fip) * time / 90;
-  return { type: 'arm', war, time, rate: war / time };
+  return { type: 'arm', starter, war, time, rate: war / time };
 }

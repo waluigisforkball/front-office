@@ -1,16 +1,41 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=2"></head><body>
 <header><h1>Front Office</h1><span id="snap">No snapshot loaded</span></header>
 <main>
-<section class="panel"><div class="stats" id="stats"></div>
-<div class="row"><button id="load">Load snapshot</button><button id="proj">Get projections</button><label class="check"><input type="checkbox" id="photos" checked> Headshots</label></div>
-<p id="msg" role="status"></p></section>
+<p id="lock" class="panel warn"></p>
+<nav id="tabs"><button data-tab="dash">Dashboard</button><button data-tab="roster">Roster</button><button data-tab="market">Free agents</button><button data-tab="log">Moves</button><button data-tab="tools">Settings</button></nav>
+<p id="msg" role="status"></p>
+<div data-view="dash">
+<section class="panel"><div class="row"><label>Budget<select id="mode"><option value="realistic">Realistic</option><option value="unleashed">Unleashed</option><option value="custom">Custom</option></select></label><label id="customwrap">Custom budget ($M)<input id="custom" type="number" min="0" step="1"></label></div>
+<div class="stats row" id="stats"></div><div id="meters"></div></section>
+<section class="panel"><div class="row"><button id="load">Load snapshot</button><button id="proj">Get projections</button></div></section>
+</div>
+<div data-view="roster">
+<div class="row"><label>Show<select id="filter"><option value="all">Everyone</option><option value="P">Pitchers</option><option value="Position">Position players</option></select></label><label>Sort<select id="sort"><option value="name">Name</option><option value="war">Projected WAR</option><option value="salary">Salary</option><option value="age">Age</option></select></label></div>
 <section id="roster" class="grid"></section>
-<section class="panel"><h2>Test a move</h2>
-<div class="row"><label>Player<select id="who"></select></label><label>Cost per year ($M)<input id="cost" type="number" value="10" step="0.5" min="0"></label></div>
-<p id="score">Get projections to score a move.</p></section>
-<details class="panel"><summary>Grading settings</summary><div class="row" id="settings"></div></details>
-<details class="panel"><summary>Backup</summary><div class="row"><button id="export">Download backup</button><label>Restore backup<input type="file" id="restore" accept=".json"></label></div></details>
+<details class="panel" id="depthbox"><summary>Depth chart</summary><div id="depth" class="grid"></div></details>
+</div>
+<div data-view="market">
+<div class="row"><button id="fa">Load free agents</button><label>Position<select id="fapos"><option value="all">All</option></select></label><label>Sort<select id="fasort"><option value="war">Projected WAR</option><option value="age">Age</option><option value="name">Name</option></select></label></div>
+<p><small>Unsigned as listed on Nov. 25, 2026. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
+<section id="market" class="grid"></section>
+</div>
+<div data-view="log"><section id="timeline"></section></div>
+<div data-view="tools">
+<section class="panel"><h2>Display</h2><label class="check"><input type="checkbox" id="photos"> Headshots</label></section>
+<section class="panel"><h2>Assumptions</h2><div class="row" id="settings"></div></section>
+<section class="panel"><h2>Salary fix</h2><p>Saves a new dated snapshot. Older ones stay as they were.</p><form id="fix" class="row"><label>Player<select id="fixwho"></select></label><label>2027 cash ($M)<input id="fixcash" type="number" step="any" min="0" required></label><label>Annual average ($M)<input id="fixaav" type="number" step="any" min="0" required></label><button>Save fix</button></form></section>
+<section class="panel"><h2>Backup</h2><div class="row"><button id="export">Download backup</button><label>Restore backup<input type="file" id="restore" accept=".json"></label></div></section>
+</div>
 </main>
-<script type="module" src="app.js"></script></body></html>
+<dialog id="move"><form id="moveform"><h2 id="movename"></h2><p id="movewar"></p>
+<label>Move<select id="mtype"></select></label>
+<div class="row"><label>Years<input id="myears" type="number" min="1" max="15" value="1" required></label><label>Cost per year ($M)<input id="maav" type="number" min="0" step="any" required></label></div>
+<div class="row"><label>My expected WAR<input id="mwar" type="number" step="0.1" required></label><label>Confidence<select id="mconf"><option>Low</option><option selected>Medium</option><option>High</option></select></label></div>
+<label>Why this move?<textarea id="mwhy" rows="3" required></textarea></label>
+<label>Alternatives from the board<select id="malts" multiple size="5"></select></label>
+<label>Other alternatives considered<input id="mother"></label>
+<p id="mscore"></p><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
+<div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
+<script type="module" src="app.js?v=2"></script></body></html>

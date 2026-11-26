@@ -14,3 +14,12 @@ input,select{background:var(--bg);color:var(--ink);border:2px solid var(--line);
 .face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#d3d1c7}
 .card strong{display:block}.card small{color:#cecbf6}.war{font:600 20px ui-monospace,monospace;color:var(--gold)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+[hidden]{display:none!important}[data-view]{display:grid;gap:12px}nav{display:flex;flex-wrap:wrap;gap:8px}
+nav button,button.quiet{background:var(--panel);color:var(--ink);border:2px solid var(--line)}nav button[aria-current=page]{background:var(--gold);color:#20120b}
+.warn{border-color:var(--gold);color:var(--gold);margin:0}.bar{position:relative;height:22px;background:var(--bg);border:2px solid var(--line);border-radius:5px;margin:6px 0 16px}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--act);transition:width .4s}.bar.over i{background:#e24b4a}.bar u{position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--gold)}
+.card button{margin-top:8px;padding:6px 12px}.tag{display:inline-block;background:var(--gold);color:#20120b;border-radius:4px;padding:1px 6px;font-size:12px}
+textarea,#moveform label{width:100%}textarea{background:var(--bg);color:var(--ink);border:2px solid var(--line);border-radius:6px;padding:7px;font:inherit}
+dialog{background:var(--panel);color:var(--ink);border:3px solid var(--gold);border-radius:12px;width:min(480px,94vw)}dialog::backdrop{background:#000a}
+#moveform label{margin-top:10px}#moveform .row label{flex:1;min-width:130px}
+#timeline{display:grid;gap:10px}.voided{opacity:.6;text-decoration:line-through}
