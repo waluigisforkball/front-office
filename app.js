@@ -92,9 +92,10 @@ function render() {
   $('fixwho').replaceChildren(...[...roster].sort(sorter('name')).map(x => el('option', { value: x.id }, x.name))); if (who) $('fixwho').value = who;
 }
 const TYPES = { fa: { sign: 'Sign', minor: 'Minor league deal' }, own: { tender: 'Tender', nontender: 'Non-tender', extend: 'Extend', release: 'Release' } };
+const modelValue = p => Math.max(.8, war(p) * settings.dollarsPerWar);
 function openMove(p) {
   picked = p; $('moveform').reset();
-  $('movename').textContent = p.name; $('movewar').textContent = war(p) === null ? 'No projection saved.' : `Projected ${war(p).toFixed(1)} WAR`;
+  $('movename').textContent = p.name; $('movewar').textContent = war(p) === null ? 'No projection saved, so there is no projected value.' : `Projected ${war(p).toFixed(1)} WAR. Model value ${money(modelValue(p))} per year.`;
   $('mtype').replaceChildren(...Object.entries(TYPES[p.fa ? 'fa' : 'own']).map(([v, t]) => el('option', { value: v }, t)));
   $('maav').value = contracts[p.id]?.salary ?? ''; $('mwar').value = war(p)?.toFixed(1) ?? '';
   $('malts').replaceChildren(...agents.filter(a => a.id !== p.id).sort(sorter('war')).map(a => el('option', { value: a.id }, `${a.name} (${a.pos}, ${war(a)?.toFixed(1) ?? '-'} WAR)`)));
@@ -106,7 +107,12 @@ function scoreNow() {
   if (war(picked) === null || $('maav').value === '' || !['sign', 'minor', 'extend', 'tender'].includes($('mtype').value)) return null;
   return processScore({ war: war(picked), cost: +$('maav').value, age: picked.age }, altList().filter(a => a.war !== null), settings);
 }
-function scoreMove() { const s = scoreNow(); $('mscore').textContent = s ? `Projected year-one surplus: ${money(s.surplus)}` : 'This move has no surplus score yet.'; }
+function scoreMove() {
+  const s = scoreNow();
+  if (!s) { $('mscore').textContent = war(picked) === null ? '' : 'Enter a cost to see the surplus. Cuts are not scored.'; return; }
+  const gap = modelValue(picked) - $('maav').value, years = +$('myears').value || 1;
+  $('mscore').textContent = `Your cost is ${money(Math.abs(gap))} ${gap >= 0 ? 'below' : 'above'} model value. Year-one surplus: ${money(s.surplus)} (includes any injury discount). Total commitment: ${money($('maav').value * years)}.`;
+}
 async function voidMove(d) {
   const why = prompt('Why are you voiding this move?'); if (!why?.trim()) return;
   await db.add('decisions', { id: crypto.randomUUID(), type: 'void', label: 'Voided', voids: d.id, playerId: d.playerId, name: d.name, why: why.trim(), at: new Date().toISOString() });
@@ -123,7 +129,7 @@ $('moveform').onsubmit = async e => {
   $('move').close(); await refresh(); say(`Move locked: ${p.name}.`);
 };
 $('cancel').onclick = () => $('move').close();
-for (const id of ['mtype', 'maav', 'malts']) $(id).oninput = scoreMove;
+for (const id of ['mtype', 'maav', 'malts', 'myears']) $(id).oninput = scoreMove;
 
 async function getStats(ids) {
   const res = await fetch(`${API}/people?personIds=${ids}&hydrate=stats(group=[hitting,pitching],type=[yearByYear])`);
