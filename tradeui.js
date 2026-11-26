@@ -1,5 +1,5 @@
-import { tradeValue, balance } from './trade.js?v=7';
-import { SPOTS, findMatches } from './needs.js?v=7';
+import { tradeValue, balance } from './trade.js?v=8';
+import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=8';
 const $ = id => document.getElementById(id);
 const PAGE = 6;
 const basket = { give: [], get: [] }, view = { give: { spot: '', page: 0 }, get: { spot: '', page: 0 } };
@@ -20,7 +20,8 @@ function chip(p, side, inBasket) {
       el('small', {}, d.surplus === null ? 'Not valued (no MLB projection)' : `Surplus ${money(d.surplus)} over ${d.pay.length} yr`),
       el('small', {}, `${money(d.pay[0])} a year, ${d.source}`)));
   const act = el('button', { type: 'button', className: inBasket ? 'quiet' : '', onclick: () => { if (inBasket) { basket[side] = basket[side].filter(x => x !== p.id); drawTrade(); } else add(side, p.id); } }, inBasket ? 'Remove' : 'Add');
-  const box = el('div', { className: 'chip', draggable: !inBasket }, el('div', { className: 'chiphead' }, open, act));
+  const buttons = el('div', { className: 'acts' }, act, ...(side === 'give' ? [ctx.keepButton(p)] : []));
+  const box = el('div', { className: 'chip', draggable: !inBasket }, el('div', { className: 'chiphead' }, open, buttons));
   box.ondragstart = e => e.dataTransfer.setData('text/plain', JSON.stringify({ side, id: p.id }));
   if (inBasket) {
     const salary = el('input', { type: 'number', min: 0, step: 'any', value: d.pay[0] });
@@ -74,14 +75,18 @@ function load(m) { ctx.chooseTeam(m.teamId); basket.give = [m.give.id]; basket.g
 export function search(spot) {
   const { el } = ctx, box = $('matches'); $('matchspot').value = spot;
   if (!ctx.needs) return box.replaceChildren(el('p', {}, 'Scan the league first.'));
-  const usable = list => list.map(p => ({ ...describe(p), spot: spotOf(p), locked: ctx.unavailable.has(p.id) }));
+  const usable = list => list.map(p => ({ ...describe(p), spot: spotOf(p), locked: ctx.unavailable.has(p.id), untouchable: ctx.settings.untouchable.includes(p.id) }));
   const found = findMatches({ spot, mine: usable(ctx.own), others: new Map(ctx.teamIds.map(id => [id, usable(ctx.theirs(id))])), needs: ctx.needs, myId: ctx.myId });
-  box.replaceChildren(...(found.length ? found.map(m => el('div', { className: 'offer' },
+  const offer = m => el('div', { className: 'offer' },
     el('div', {}, el('strong', {}, `${ctx.teamName(m.teamId)}`),
       el('small', {}, `You get ${m.get.name} (${m.get.pos}, ${m.get.war.toFixed(1)} WAR)`),
-      el('small', {}, `You give ${m.give.name} (${m.give.pos}, ${m.give.war.toFixed(1)} WAR). Net ${money(m.net)}.`)),
-    el('button', { type: 'button', onclick: () => load(m) }, 'Review offer')))
-    : [el('p', {}, `No fair one-for-one offer found at ${spot}. Try another position or build one below.`)]));
+      el('small', {}, `You give ${m.give.name} (${m.give.pos}, ${m.give.war.toFixed(1)} WAR). Net ${money(m.net)}.`),
+      ...caveats(m).map(text => el('small', { className: 'caveat' }, text))),
+    el('button', { type: 'button', onclick: () => load(m) }, 'Review offer'));
+  const group = (title, tier) => { const list = found.filter(m => m.tier === tier); return list.length ? [el('h3', {}, title), ...list.map(offer)] : []; };
+  const rules = el('p', {}, el('small', {}, `Players projected at ${STAR} WAR or more, and your untouchables, are left out.`));
+  box.replaceChildren(rules, ...(found.length ? [...group('Good fits', 'fit'), ...group('Long shots', 'long')]
+    : [el('p', {}, `No one-for-one offer found at ${spot}. Try another position or build one below.`)]));
 }
 export function setupTrade(lock) {
   for (const side of ['give', 'get']) {

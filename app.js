@@ -1,16 +1,16 @@
-import * as db from './db.js?v=7';
+import * as db from './db.js?v=8';
 import { parseCSV } from './csv.js';
 import { hitter, pitcher } from './projections.js';
 import { DEFAULTS, processScore } from './grading.js';
 import { forecast } from './forecast.js';
-import { TIERS, active, payroll } from './payroll.js?v=7';
-import { projectStats, COLUMNS } from './stats.js?v=7';
-import { drawTrade, setupTrade, clearReceived, search } from './tradeui.js?v=7';
-import { terms, importRows, plain } from './contracts.js?v=7';
-import { SPOTS, leagueNeeds } from './needs.js?v=7';
+import { TIERS, active, payroll } from './payroll.js?v=8';
+import { projectStats, COLUMNS } from './stats.js?v=8';
+import { drawTrade, setupTrade, clearReceived, search } from './tradeui.js?v=8';
+import { terms, importRows, plain } from './contracts.js?v=8';
+import { SPOTS, leagueNeeds } from './needs.js?v=8';
 
 const SNAP = '2026-11-25', API = 'https://statsapi.mlb.com/api/v1', $ = id => document.getElementById(id);
-const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18, decline28to30: .25, declineFrom31: .5, statYears: 3 };
+const BASE = { id: 'main', ...DEFAULTS, photos: true, mode: 'realistic', custom: 180, realisticBudget: 170, otherTaxCosts: 18, decline28to30: .25, declineFrom31: .5, statYears: 3, untouchable: [] };
 let history = {}, edits = {}, fixes = {}, imports = {}, teams = [], needs = null, effective = new Map(), statCache = new Map();
 const MINE = '110';
 const ORDER = ['SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'IF', 'OF', 'DH', 'TWP'];
@@ -90,6 +90,14 @@ function fit(p) {
   const bar = peers[pitch ? 4 : 0] ?? 0;
   return war(p) > bar + .5 ? 'Upgrade' : war(p) > bar - .5 ? 'Similar' : 'Depth';
 }
+// Untouchable players are never suggested by Find match.
+function keepButton(p) {
+  const on = settings.untouchable.includes(p.id);
+  const b = el('button', { type: 'button', className: on ? 'keep on' : 'keep', title: 'Find match will never offer an untouchable player',
+    onclick: () => { settings.untouchable = on ? settings.untouchable.filter(id => id !== p.id) : [...settings.untouchable, p.id]; $('matches').replaceChildren(); save(); } },
+    on ? 'Untouchable ✓' : 'Untouchable');
+  b.setAttribute('aria-pressed', String(on)); return b;
+}
 function card(p) {
   const c = contracts[p.id], w = war(p), gone = active(log).some(d => d.playerId === p.id && ['release', 'nontender'].includes(d.type));
   const signed = active(log).find(d => d.playerId === p.id && ['sign', 'minor'].includes(d.type));
@@ -107,6 +115,7 @@ function card(p) {
   else box.append(el('small', {}, out ? 'Traded in your plan' : gone ? 'Removed in your plan' : `${money(c.salary)} (${c.type})`));
   const buttons = el('div', {}, el('button', { className: 'quiet', onclick: () => openDetail(p) }, 'Stats'));
   if (!out && !acquired) buttons.append(' ', el('button', { onclick: () => openMove(p) }, 'Make move'));
+  if (!p.fa && !out && !gone) buttons.append(el('div', {}, keepButton(p)));
   box.append(buttons); return box;
 }
 function openDetail(p) {
@@ -154,7 +163,7 @@ function renderTrade() {
     $('matchspot').replaceChildren(...order.map(n => el('option', { value: n.spot }, `${n.spot} (rank ${n.rank} of ${n.of})`))); $('matchspot').value = spot || order[0].spot; }
   renderNeeds(chosen);
   const unavailable = new Set([...traded('give'), ...traded('get'), ...active(log).filter(d => ['sign', 'release', 'nontender'].includes(d.type)).map(d => d.playerId)]);
-  drawTrade({ el, face, war, section, byWar, settings, terms: termsFor, openDetail, needs, myId: MINE, teamIds: teams.map(t => t.id), teamName,
+  drawTrade({ el, face, war, section, byWar, settings, terms: termsFor, openDetail, keepButton, needs, myId: MINE, teamIds: teams.map(t => t.id), teamName,
     unavailable, own: myRoster(), theirs: rosterOf, chooseTeam: id => { $('needfilter').value = ''; renderTrade(); $('team').value = id; renderTrade(); $('matches').replaceChildren(); },
     saveEdit: async (playerId, e) => { await db.put('contracts', { id: `trade:${playerId}`, playerId, snapshotId: 'trade', ...e }); await refresh(); } });
 }
