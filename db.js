@@ -8,6 +8,7 @@ const store = async (s, mode = 'readonly') => (await dbp).transaction(s, mode).o
 export const all = async s => wrap((await store(s)).getAll());
 export const put = async (s, row) => wrap((await store(s, 'readwrite')).put(row));
 export const add = async (s, row) => wrap((await store(s, 'readwrite')).add(row));
+export const remove = async (s, id) => wrap((await store(s, 'readwrite')).delete(id));
 export async function backup() { const out = {}; for (const s of STORES) out[s] = await all(s); return out; }
 export async function restore(data) {
   if (!STORES.every(s => Array.isArray(data[s]))) throw new Error('Not a Front Office backup');
