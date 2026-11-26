@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css?v=8"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=10"></head><body>
 <header><h1>Front Office</h1><span id="snap">No roster loaded</span></header>
 <main>
 <p id="lock" class="panel warn"></p>
@@ -24,25 +24,30 @@
 <section class="panel"><h2>Areas of need</h2><div id="needs"></div><div class="row"><button type="button" id="scan">Scan league</button></div></section>
 <section class="panel" id="matchbox"><h2>Find match</h2><div class="row"><label>Fill my weak spot<select id="matchspot"></select></label><button type="button" id="findmatch">Find match</button></div><div id="matches"></div></section>
 <div class="row"><label>Trade partner<select id="team"><option value="">Choose a team</option></select></label><label id="needwrap">Show teams that need<select id="needfilter"><option value="">Any position</option><option>C</option><option>1B</option><option>2B</option><option>3B</option><option>SS</option><option>OF</option><option>SP</option><option>RP</option></select></label></div>
-<section class="panel" id="balancebox"><h2>Value balance</h2><div class="balance"><i id="needle"></i></div><div class="ends"><span>Favors them</span><span>Favors you</span></div><p id="verdict"></p></section>
+<section class="panel" id="balancebox"><h2>Value balance</h2><div class="balance"><i id="needle"></i></div><div class="ends"><span>Favors them</span><span>Favors you</span></div><p id="verdict"></p><div id="moneyline"></div></section>
 <div class="sides">
 <section class="panel" id="givezone"><h2>You give</h2><div id="givebasket" class="basket"></div><label>Find your player<input id="givefind" placeholder="Name or position"></label><div id="givespots" class="jump"></div><div id="givepool" class="pool"></div><div id="givepages" class="pages"></div></section>
 <section class="panel" id="getzone"><h2>You get</h2><div id="getbasket" class="basket"></div><label>Find their player<input id="getfind" placeholder="Name or position"></label><div id="getspots" class="jump"></div><div id="getpool" class="pool"></div><div id="getpages" class="pages"></div></section>
 </div>
 <form id="tradeform" class="panel"><label>Why this trade?<textarea id="twhy" rows="3"></textarea></label><div class="row"><label>Confidence<select id="tconf"><option>Low</option><option selected>Medium</option><option>High</option></select></label><label>Alternatives considered<input id="tother"></label></div><p id="terror" role="alert"></p><button>Lock in trade</button></form>
-<p><small>Value is projected surplus over each player's remaining years. Contracts marked "estimate" are guesses from MLB service history and projected WAR, and veterans are assumed to earn about market rate. No retained salary, cash or draft picks.</small></p>
+<p><small>Value is projected surplus over each player's remaining years. Contracts marked "estimate" are guesses from MLB service history and projected WAR, and veterans are assumed to earn about market rate. No retained salary, cash or draft picks. Built-in team payrolls are 2026 opening figures <a href="https://sports.yahoo.com/articles/2026-mlb-payrolls-highest-lowest-100221699.html" target="_blank" rel="noopener">reported by USA TODAY</a>; what each team can add is a rule of thumb.</small></p>
 </div>
-<div data-view="log"><section id="timeline"></section></div>
+<div data-view="log">
+<section class="panel"><h2>Your plan</h2><p id="plansum"></p><div class="row"><button type="button" id="submit">Submit plan</button><button type="button" class="quiet" id="check">Check for updates</button></div><div id="plans"></div>
+<p><small>Submitting locks your moves and saves what the market looked like. A submitted move can only be replaced if real news breaks it. Extensions signed in real life aren't detected.</small></p></section>
+<section id="timeline"></section></div>
 <div data-view="tools">
 <section class="panel"><h2>Display</h2><label class="check"><input type="checkbox" id="photos"> Headshots</label></section>
 <section class="panel"><h2>Assumptions</h2><div class="row" id="settings"></div></section>
 <section class="panel"><h2>Contracts file (optional)</h2><p>Real numbers from a file you're allowed to use replace the estimates. Columns: name, mlb_id (optional), salary_millions, years, aav_millions (optional).</p><div class="row"><label>Import CSV<input type="file" id="importfile" accept=".csv"></label><button type="button" class="quiet" id="template">Download template</button><button type="button" class="quiet" id="unimport">Remove imported</button></div><p id="imported"></p></section>
+<section class="panel"><h2>Team payrolls (optional)</h2><p>Update what each team spends, once a year. Columns: team, payroll_millions.</p><div class="row"><label>Import CSV<input type="file" id="payfile" accept=".csv"></label><button type="button" class="quiet" id="paytemplate">Download current list</button><button type="button" class="quiet" id="payreset">Use built-in</button></div><p id="payimported"></p></section>
 <section class="panel"><h2>Salary fix</h2><p>Overrides one player's 2027 salary.</p><form id="fix" class="row"><label>Player<select id="fixwho"></select></label><label>2027 cash ($M)<input id="fixcash" type="number" step="any" min="0" required></label><label>Annual average ($M)<input id="fixaav" type="number" step="any" min="0" required></label><button>Save fix</button></form></section>
 <section class="panel"><h2>Backup</h2><div class="row"><button id="export">Download backup</button><label>Restore backup<input type="file" id="restore" accept=".json"></label></div></section>
 </div>
 </main>
 <dialog id="detail"><h2 id="dname"></h2><div id="dbody"></div><button type="button" class="quiet" id="dclose">Close</button></dialog>
 <dialog id="done"><h2>Trade saved</h2><div id="donebody"></div><div class="row"><button type="button" id="doneview">View in Moves</button><button type="button" class="quiet" id="doneclose">Close</button></div></dialog>
+<dialog id="report"><h2 id="rname"></h2><div id="rbody"></div><button type="button" class="quiet" id="rclose">Close</button></dialog>
 <dialog id="move"><form id="moveform"><h2 id="movename"></h2><p id="movewar"></p>
 <label>Move<select id="mtype"></select></label>
 <div class="row"><label>Years<input id="myears" type="number" min="1" max="15" value="1" required></label><label>Cost per year ($M)<input id="maav" type="number" min="0" step="any" required></label></div>
@@ -52,4 +57,4 @@
 <label>Other alternatives considered<input id="mother"></label>
 <p id="mscore"></p><div id="mforecast"><table id="mrows"></table><small>Estimate: flat cost and $ per win, with your age decline and injury discount.</small></div><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
 <div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
-<script type="module" src="app.js?v=8"></script></body></html>
+<script type="module" src="app.js?v=10"></script></body></html>
