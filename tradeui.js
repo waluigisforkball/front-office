@@ -1,5 +1,5 @@
-import { balance } from './trade.js?v=12';
-import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=12';
+import { balance } from './trade.js?v=13';
+import { SPOTS, STAR, findMatches, caveats } from './needs.js?v=13';
 const $ = id => document.getElementById(id);
 const PAGE = 6;
 const basket = { give: [], get: [] }, view = { give: { spot: '', page: 0 }, get: { spot: '', page: 0 } };

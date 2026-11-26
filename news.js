@@ -1,4 +1,4 @@
-import { PAYROLL } from './budgets.js?v=12';
+import { PAYROLL } from './budgets.js?v=13';
 // Reads MLB transaction records and works out which of your moves real life has overtaken.
 export const ORIOLES = 110;
 const isClub = t => !!t && PAYROLL[t.id] !== undefined;
@@ -34,6 +34,16 @@ export function departure(list = [], teamId) {
   }
   return out;
 }
+// Signings MLB may not list yet: the built-in reported ones, plus any you marked. A mark with off set undoes one.
+export function reportedDeals(freeAgents, reported, marks, plain) {
+  const mine = new Map(marks.map(m => [m.mlbId, m])), out = marks.filter(m => !m.off).map(m => ({ ...m, mine: true }));
+  for (const r of reported) { const p = freeAgents.find(x => x.mlbId && plain(x.name) === plain(r.name));
+    if (p && !mine.has(p.mlbId)) out.push({ ...r, mlbId: p.mlbId, mine: false }); }
+  return out;
+}
+// The same shape as an MLB transaction, so every signing check treats it alike.
+export const asTransaction = (d, i) => ({ id: 9e12 + i, person: { id: d.mlbId, fullName: d.name }, date: d.date, typeCode: 'SFA', typeDesc: 'Signed as Free Agent',
+  toTeam: { id: d.team, name: d.teamName }, description: d.mine ? `Marked by you: ${d.name} signed with ${d.teamName}.` : `Reported: ${d.name} agreed with ${d.teamName} (${d.terms}).` });
 // state: ok, matched (it happened as you planned) or broken (it can no longer happen).
 export function moveStatus(d, news, mlbId) {
   const of = id => news.get(String(mlbId(id))), broken = e => ({ state: 'broken', reason: `${e.date}: ${e.text}` });

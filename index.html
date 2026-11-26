@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Front Office</title><link rel="stylesheet" href="styles.css?v=12"></head><body>
+<title>Front Office</title><link rel="stylesheet" href="styles.css?v=13"></head><body>
 <header><h1>Front Office</h1><span id="snap">No roster loaded</span></header>
 <main>
 <p id="lock" class="panel warn"></p>
@@ -21,7 +21,8 @@
 </div>
 <div data-view="market">
 <div class="row"><button id="fa">Load free agents</button><label>Stat seasons<select class="window"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label></div>
-<p><small>Unsigned as listed on Nov. 25, 2026. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
+<p><small>Listed as unsigned on Nov. 25, 2026. Real signings are checked each time you open the app. If one is missing, use Mark as signed. "Model value" is projected WAR times your $ per win, not a market forecast.</small></p>
+<details id="marked" class="panel"><summary id="markcount"></summary><div id="marklist"></div></details>
 <div id="marketjump" class="jump"></div><div id="market"></div>
 </div>
 <div data-view="trade">
@@ -52,6 +53,7 @@
 <dialog id="detail"><h2 id="dname"></h2><div id="dbody"></div><button type="button" class="quiet" id="dclose">Close</button></dialog>
 <dialog id="done"><h2>Trade saved</h2><div id="donebody"></div><div class="row"><button type="button" id="doneview">View in Moves</button><button type="button" class="quiet" id="doneclose">Close</button></div></dialog>
 <dialog id="report"><h2 id="rname"></h2><div id="rbody"></div><button type="button" class="quiet" id="rclose">Close</button></dialog>
+<dialog id="mark"><form id="markform"><h2 id="markname"></h2><label>Signed with<select id="markteam" required></select></label><div class="row"><button>Mark as signed</button><button type="button" class="quiet" id="markcancel">Cancel</button></div></form></dialog>
 <dialog id="move"><form id="moveform"><h2 id="movename"></h2><p id="movewar"></p>
 <label>Move<select id="mtype"></select></label>
 <div class="row"><label>Years<input id="myears" type="number" min="1" max="15" value="1" required></label><label>Cost per year ($M)<input id="maav" type="number" min="0" step="any" required></label></div>
@@ -61,4 +63,4 @@
 <label>Other alternatives considered<input id="mother"></label>
 <p id="mscore"></p><div id="mforecast"><table id="mrows"></table><small>Estimate: flat cost and $ per win, with your age decline and injury discount.</small></div><p><small>Saved moves are locked. You can void one later, but it stays in the history.</small></p>
 <div class="row"><button>Lock in move</button><button type="button" id="cancel" class="quiet">Cancel</button></div></form></dialog>
-<script type="module" src="app.js?v=12"></script></body></html>
+<script type="module" src="app.js?v=13"></script></body></html>

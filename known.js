@@ -16,3 +16,8 @@ export const KNOWN = {
   'colton cowser': { first: 2.2, control: 3, since: '2026-10-01' },
   'jordan westburg': { first: 1.5, control: 3, since: '2026-10-01' },
 };
+// Agreements reported in the news that MLB may not list yet. Checked Nov. 26, 2026.
+export const REPORTED = [
+  { name: 'Kevin Gausman', team: 116, teamName: 'Detroit Tigers', date: '2026-11-25', terms: '1 year, $25M' },
+  { name: 'David Peterson', team: 115, teamName: 'Colorado Rockies', date: '2026-11-25', terms: '2 years, $32M' },
+];

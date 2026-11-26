@@ -1,5 +1,5 @@
-import { PAYROLL } from './budgets.js?v=12';
-import { byPlayer, kindOf } from './news.js?v=12';
+import { PAYROLL } from './budgets.js?v=13';
+import { byPlayer, kindOf } from './news.js?v=13';
 // Free agency opened to all teams Nov. 2 at 5 p.m. ET, so that day's signings count as "not yet".
 export const OPENING = '2026-11-02';
 const club = t => !!t && PAYROLL[t.id] !== undefined;
